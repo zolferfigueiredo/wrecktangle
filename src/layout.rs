@@ -79,20 +79,6 @@ impl Action {
             Action::PreviousDisplay => "Previous display",
         }
     }
-
-    pub fn is_directional(&self) -> bool {
-        matches!(
-            self,
-            Action::Left
-                | Action::Right
-                | Action::Top
-                | Action::Bottom
-                | Action::TopLeft
-                | Action::TopRight
-                | Action::BottomLeft
-                | Action::BottomRight
-        )
-    }
 }
 
 fn round_frac(total: i32, fraction: f64) -> i32 {
