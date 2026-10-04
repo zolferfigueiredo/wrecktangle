@@ -32,8 +32,6 @@ pub fn parse_size(input: &str) -> Result<f64, ParseSizeError> {
     }
 }
 
-/// Parses the comma-separated size list typed in Settings, with the message
-/// to show when it is not usable.
 pub fn parse_size_list(text: &str) -> Result<Vec<String>, &'static str> {
     let entries: Vec<String> = text
         .split(',')

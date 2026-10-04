@@ -149,7 +149,6 @@ pub fn format(shortcut: &Shortcut) -> String {
     parts(shortcut).join("+")
 }
 
-/// One label per key cap, with the arrow keys drawn as arrows.
 pub fn key_caps(shortcut: &Shortcut) -> Vec<String> {
     let mut caps = parts(shortcut);
     let arrow = match shortcut.vk {

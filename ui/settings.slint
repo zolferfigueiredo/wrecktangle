@@ -454,6 +454,9 @@ export component SettingsWindow inherits Window {
                 text: "Shortcuts";
                 selected: root.page == 0;
                 activated => {
+                    if (root.page == 1) {
+                        root.sizes-error = root.apply-sizes(root.sizes-text);
+                    }
                     root.page = 0;
                 }
             }

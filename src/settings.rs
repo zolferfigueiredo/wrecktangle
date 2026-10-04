@@ -9,10 +9,12 @@ use windows::Win32::UI::Controls::{LIM_LARGE, LIM_SMALL, LoadIconMetric};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
 };
+use windows::Win32::UI::Input::{RAWINPUTDEVICE, RIDEV_REMOVE, RegisterRawInputDevices};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, HHOOK, ICON_BIG, ICON_SMALL, KBDLLHOOKSTRUCT, LLKHF_INJECTED, PostMessageW,
-    SendMessageW, SetForegroundWindow, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL,
-    WM_KEYDOWN, WM_KEYUP, WM_SETICON, WM_SYSKEYDOWN, WM_SYSKEYUP,
+    CallNextHookEx, FindWindowW, GetWindowThreadProcessId, HHOOK, ICON_BIG, ICON_SMALL,
+    KBDLLHOOKSTRUCT, LLKHF_INJECTED, PostMessageW, SendMessageW, SetForegroundWindow,
+    SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SETICON,
+    WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
 use windows::core::{PCWSTR, w};
 
@@ -70,6 +72,7 @@ pub fn open() {
 }
 
 fn create() -> Result<SettingsWindow, slint::PlatformError> {
+    drop_raw_keyboard_registration();
     let ui = SettingsWindow::new()?;
     ui.set_rows(ModelRc::new(VecModel::from(vec![
         ShortcutRow::default();
@@ -103,9 +106,30 @@ fn create() -> Result<SettingsWindow, slint::PlatformError> {
     ui.on_download(update::open_download);
     ui.window().on_close_requested(|| {
         cancel_recording();
+        if let Some(ui) = window() {
+            apply_sizes(&ui.get_sizes_text());
+        }
         CloseRequestResponse::HideWindow
     });
     Ok(ui)
+}
+
+// Winit registers for raw keyboard input when its event loop starts. While a
+// window of ours is in front, Windows then stops calling this process's
+// low-level keyboard hooks (seen with injected input), which the shortcut
+// recorder and the takeover depend on.
+fn drop_raw_keyboard_registration() {
+    const HID_USAGE_PAGE_GENERIC: u16 = 0x01;
+    const HID_USAGE_GENERIC_KEYBOARD: u16 = 0x06;
+    let keyboard = RAWINPUTDEVICE {
+        usUsagePage: HID_USAGE_PAGE_GENERIC,
+        usUsage: HID_USAGE_GENERIC_KEYBOARD,
+        dwFlags: RIDEV_REMOVE,
+        hwndTarget: HWND::default(),
+    };
+    unsafe {
+        let _ = RegisterRawInputDevices(&[keyboard], std::mem::size_of::<RAWINPUTDEVICE>() as u32);
+    }
 }
 
 fn refresh_all(ui: &SettingsWindow) {
@@ -196,7 +220,6 @@ fn raise(attempt: u32) {
 }
 
 fn find_window() -> Option<HWND> {
-    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetWindowThreadProcessId};
     unsafe {
         let hwnd = FindWindowW(PCWSTR::null(), WINDOW_TITLE).ok()?;
         let mut pid = 0u32;
