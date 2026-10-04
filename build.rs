@@ -1,5 +1,10 @@
 fn main() {
-    embed_resource::compile("assets/wectangle.rc", embed_resource::NONE)
-        .manifest_required()
-        .unwrap();
+    // Explicit include dir so GNU windres (used when cross-compiling from
+    // Linux) finds the icon and manifest the same way rc.exe does on MSVC.
+    embed_resource::compile(
+        "assets/wectangle.rc",
+        embed_resource::ParamsIncludeDirs(["assets"]),
+    )
+    .manifest_required()
+    .unwrap();
 }
