@@ -84,7 +84,7 @@ notification, and is left untouched until you press Save.
   any shortcut that does this.
 - **Default keys also used elsewhere.** A few defaults overlap with shortcuts
   some other programs already use:
-  - **Magnifier**, while it is running: Ctrl+Alt+Arrows, F, Space, Enter.
+  - **Magnifier**, while it is running: Ctrl+Alt+Arrows, F, Enter.
   - **VS Code**: Ctrl+Alt+Up/Down add cursors.
   - **JetBrains IDEs**: Ctrl+Alt+Left/Right navigate back and forward.
 
