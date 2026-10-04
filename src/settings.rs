@@ -8,9 +8,10 @@ use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
     ICC_LISTVIEW_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, LIM_LARGE, LIM_SMALL,
     LVCF_SUBITEM, LVCF_TEXT, LVCF_WIDTH, LVCFMT_LEFT, LVCOLUMNW, LVIF_TEXT, LVITEMW,
-    LVM_GETNEXTITEM, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETEXTENDEDLISTVIEWSTYLE,
-    LVM_SETITEMTEXTW, LVNI_SELECTED, LVS_EX_FULLROWSELECT, LVS_REPORT, LVS_SHOWSELALWAYS,
-    LVS_SINGLESEL, LoadIconMetric, NM_DBLCLK, NMHDR, NMITEMACTIVATE, WC_LISTVIEW,
+    LVM_APPROXIMATEVIEWRECT, LVM_GETNEXTITEM, LVM_INSERTCOLUMNW, LVM_INSERTITEMW,
+    LVM_SETCOLUMNWIDTH, LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMTEXTW, LVNI_SELECTED,
+    LVS_EX_FULLROWSELECT, LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, LVSCW_AUTOSIZE_USEHEADER,
+    LoadIconMetric, NM_DBLCLK, NMHDR, NMITEMACTIVATE, WC_LISTVIEW,
 };
 use windows::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForWindow, SystemParametersInfoForDpi,
@@ -23,11 +24,11 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 use windows::Win32::UI::WindowsAndMessaging::{
     CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL, GetWindowTextW,
     HMENU, ICON_BIG, ICON_SMALL, IDCANCEL, IDOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED, PostMessageW,
-    RegisterClassExW, SW_SHOW, SendMessageW, SetForegroundWindow, SetWindowPos, SetWindowTextW,
-    ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND, WM_DESTROY,
-    WM_DPICHANGED, WM_KEYDOWN, WM_KEYUP, WM_NOTIFY, WM_SETFONT, WM_SETICON, WM_SYSKEYDOWN,
-    WM_SYSKEYUP, WNDCLASSEXW, WS_CAPTION, WS_CHILD, WS_EX_CLIENTEDGE, WS_GROUP, WS_SYSMENU,
-    WS_TABSTOP, WS_VISIBLE,
+    RegisterClassExW, SW_SHOW, SWP_NOMOVE, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
+    SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE,
+    WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_KEYDOWN, WM_KEYUP, WM_NOTIFY, WM_SETFONT, WM_SETICON,
+    WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSEXW, WS_CAPTION, WS_CHILD, WS_EX_CLIENTEDGE, WS_GROUP,
+    WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
 use windows::core::{Error, HRESULT, PCWSTR, PWSTR, Result, w};
 
@@ -53,11 +54,17 @@ const WM_APP_RECORDER_KEY: u32 = WM_APP + 30;
 const DUMMY_VK: u16 = 0xFF;
 const DUMMY_KEY_MAGIC: usize = 0x5745_4354;
 
+const MOD_BIT_CTRL: isize = 0x1;
+const MOD_BIT_ALT: isize = 0x2;
+const MOD_BIT_SHIFT: isize = 0x4;
+const MOD_BIT_WIN: isize = 0x8;
+
 const BASE_W: i32 = 540;
-const BASE_H: i32 = 430;
 const MARGIN: i32 = 12;
 const LIST_Y: i32 = 12;
-const LIST_H: i32 = 230;
+// WS_CAPTION | WS_SYSMENU; the `BitOr` impl on WINDOW_STYLE is not a const
+// fn, so the bits are combined by hand to make this a const.
+const WINDOW_STYLE_BITS: WINDOW_STYLE = WINDOW_STYLE(WS_CAPTION.0 | WS_SYSMENU.0);
 
 #[derive(Clone, Copy)]
 struct Hwnds {
@@ -66,7 +73,9 @@ struct Hwnds {
     change_btn: HWND,
     clear_btn: HWND,
     restore_btn: HWND,
+    size_label: HWND,
     sizes_edit: HWND,
+    hint_label: HWND,
     startup_check: HWND,
     save_btn: HWND,
     cancel_btn: HWND,
@@ -135,21 +144,29 @@ fn create_window() -> Result<()> {
             CLASS_REGISTERED.with(|c| c.set(true));
         }
 
+        // A placeholder size: created before the real row height (which
+        // depends on the font) can be measured. Corrected below once the
+        // ListView exists, by measuring and resizing to fit.
         let dpi_guess = 96u32;
         let mut rect = RECT {
             left: 0,
             top: 0,
             right: BASE_W,
-            bottom: BASE_H,
+            bottom: 420,
         };
-        let style = WS_CAPTION | WS_SYSMENU;
-        let _ = AdjustWindowRectExForDpi(&mut rect, style, false, WINDOW_EX_STYLE(0), dpi_guess);
+        let _ = AdjustWindowRectExForDpi(
+            &mut rect,
+            WINDOW_STYLE_BITS,
+            false,
+            WINDOW_EX_STYLE(0),
+            dpi_guess,
+        );
 
         let main = CreateWindowExW(
             WINDOW_EX_STYLE(0),
             WINDOW_CLASS_NAME,
             w!("Wectangle Settings"),
-            style,
+            WINDOW_STYLE_BITS,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             rect.right - rect.left,
@@ -162,8 +179,11 @@ fn create_window() -> Result<()> {
 
         let dpi = GetDpiForWindow(main).max(1);
         let font = make_font(dpi);
-        let hwnds = create_controls(main, font, dpi)?;
+        let placeholder_list_h = scale(200, dpi);
+        let hwnds = create_controls(main, font, dpi, placeholder_list_h)?;
         HWNDS.with(|c| c.set(Some(hwnds)));
+
+        fit_window_to_list(&hwnds, dpi, None);
 
         let config = app::current_config();
         STAGED.with(|s| {
@@ -251,6 +271,32 @@ fn scale(v: i32, dpi: u32) -> i32 {
     (v as f64 * dpi as f64 / 96.0).round() as i32
 }
 
+fn hiword(v: isize) -> i32 {
+    ((v as u32 >> 16) & 0xFFFF) as i32
+}
+
+fn make_lparam(low: i32, high: i32) -> LPARAM {
+    let packed = ((low as u32) & 0xFFFF) | (((high as u32) & 0xFFFF) << 16);
+    LPARAM(packed as i32 as isize)
+}
+
+// Asks the ListView itself how tall it needs to be to show `item_count`
+// rows plus the header at the given width, instead of guessing a pixel
+// height: the row height depends on the current font, which changes with
+// DPI.
+fn measure_list_height(listview: HWND, item_count: i32, content_w: i32) -> i32 {
+    let lparam = make_lparam(content_w, -1);
+    let result = unsafe {
+        SendMessageW(
+            listview,
+            LVM_APPROXIMATEVIEWRECT,
+            Some(WPARAM(item_count as usize)),
+            Some(lparam),
+        )
+    };
+    hiword(result.0)
+}
+
 struct Rects {
     listview: RECT,
     change_btn: RECT,
@@ -264,37 +310,143 @@ struct Rects {
     cancel_btn: RECT,
 }
 
-fn rect_at(x: i32, y: i32, w: i32, h: i32, dpi: u32) -> RECT {
+fn px(x: i32, y: i32, w: i32, h: i32) -> RECT {
     RECT {
-        left: scale(x, dpi),
-        top: scale(y, dpi),
-        right: scale(x + w, dpi),
-        bottom: scale(y + h, dpi),
+        left: x,
+        top: y,
+        right: x + w,
+        bottom: y + h,
     }
 }
 
-fn compute_layout(dpi: u32) -> Rects {
-    let row_btn_y = LIST_Y + LIST_H + 8;
-    let row_btn_h = 24;
-    let size_label_y = row_btn_y + row_btn_h + 12;
-    let size_edit_y = size_label_y + 18;
-    let size_hint_y = size_edit_y + 24;
-    let startup_y = size_hint_y + 22;
-    let bottom_btn_y = startup_y + 28;
-    let bottom_btn_h = 26;
-    let content_w = BASE_W - 2 * MARGIN;
+// Every dimension here starts from a 96-DPI baseline constant and is scaled
+// individually, except `list_h`, which is already in real device pixels
+// (measured at the current DPI by measure_list_height) and must not be
+// scaled again.
+fn compute_layout(dpi: u32, list_h: i32) -> Rects {
+    let margin = scale(MARGIN, dpi);
+    let list_y = scale(LIST_Y, dpi);
+    let total_w = scale(BASE_W, dpi);
+    let content_w = total_w - 2 * margin;
+
+    let list_bottom = list_y + list_h;
+    let row_btn_y = list_bottom + scale(8, dpi);
+    let row_btn_h = scale(24, dpi);
+    let size_label_y = row_btn_y + row_btn_h + scale(12, dpi);
+    let size_edit_y = size_label_y + scale(18, dpi);
+    let size_hint_y = size_edit_y + scale(24, dpi);
+    let startup_y = size_hint_y + scale(22, dpi);
+    let bottom_btn_y = startup_y + scale(28, dpi);
+    let bottom_btn_h = scale(26, dpi);
 
     Rects {
-        listview: rect_at(MARGIN, LIST_Y, content_w, LIST_H, dpi),
-        change_btn: rect_at(MARGIN, row_btn_y, 90, row_btn_h, dpi),
-        clear_btn: rect_at(MARGIN + 98, row_btn_y, 70, row_btn_h, dpi),
-        restore_btn: rect_at(MARGIN + 176, row_btn_y, 120, row_btn_h, dpi),
-        size_label: rect_at(MARGIN, size_label_y, content_w, 16, dpi),
-        sizes_edit: rect_at(MARGIN, size_edit_y, content_w, 22, dpi),
-        size_hint: rect_at(MARGIN, size_hint_y, content_w, 16, dpi),
-        startup_check: rect_at(MARGIN, startup_y, content_w, 20, dpi),
-        save_btn: rect_at(BASE_W - MARGIN - 168, bottom_btn_y, 80, bottom_btn_h, dpi),
-        cancel_btn: rect_at(BASE_W - MARGIN - 80, bottom_btn_y, 80, bottom_btn_h, dpi),
+        listview: px(margin, list_y, content_w, list_h),
+        change_btn: px(margin, row_btn_y, scale(90, dpi), row_btn_h),
+        clear_btn: px(
+            margin + scale(98, dpi),
+            row_btn_y,
+            scale(70, dpi),
+            row_btn_h,
+        ),
+        restore_btn: px(
+            margin + scale(176, dpi),
+            row_btn_y,
+            scale(120, dpi),
+            row_btn_h,
+        ),
+        size_label: px(margin, size_label_y, content_w, scale(16, dpi)),
+        sizes_edit: px(margin, size_edit_y, content_w, scale(22, dpi)),
+        size_hint: px(margin, size_hint_y, content_w, scale(16, dpi)),
+        startup_check: px(margin, startup_y, content_w, scale(20, dpi)),
+        save_btn: px(
+            total_w - margin - scale(168, dpi),
+            bottom_btn_y,
+            scale(80, dpi),
+            bottom_btn_h,
+        ),
+        cancel_btn: px(
+            total_w - margin - scale(80, dpi),
+            bottom_btn_y,
+            scale(80, dpi),
+            bottom_btn_h,
+        ),
+    }
+}
+
+// Measures the real row height for all 12 actions, resizes the window to
+// fit them (plus everything below the list) with no vertical scrollbar,
+// and repositions every control to match. `pos` is the screen position to
+// move the window to; None keeps its current position (resize only).
+fn fit_window_to_list(h: &Hwnds, dpi: u32, pos: Option<(i32, i32)>) {
+    let margin = scale(MARGIN, dpi);
+    let total_w = scale(BASE_W, dpi);
+    let content_w = total_w - 2 * margin;
+    let list_h = measure_list_height(h.listview, Action::ALL.len() as i32, content_w);
+    let r = compute_layout(dpi, list_h);
+    let total_h = r.cancel_btn.bottom + margin;
+
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: total_w,
+        bottom: total_h,
+    };
+    unsafe {
+        let _ =
+            AdjustWindowRectExForDpi(&mut rect, WINDOW_STYLE_BITS, false, WINDOW_EX_STYLE(0), dpi);
+        match pos {
+            Some((x, y)) => {
+                let _ = SetWindowPos(
+                    h.main,
+                    None,
+                    x,
+                    y,
+                    rect.right - rect.left,
+                    rect.bottom - rect.top,
+                    SWP_NOZORDER,
+                );
+            }
+            None => {
+                let _ = SetWindowPos(
+                    h.main,
+                    None,
+                    0,
+                    0,
+                    rect.right - rect.left,
+                    rect.bottom - rect.top,
+                    SWP_NOZORDER | SWP_NOMOVE,
+                );
+            }
+        }
+    }
+    apply_layout(h, &r);
+}
+
+fn apply_layout(h: &Hwnds, r: &Rects) {
+    let moves: [(HWND, RECT); 10] = [
+        (h.listview, r.listview),
+        (h.change_btn, r.change_btn),
+        (h.clear_btn, r.clear_btn),
+        (h.restore_btn, r.restore_btn),
+        (h.size_label, r.size_label),
+        (h.sizes_edit, r.sizes_edit),
+        (h.hint_label, r.size_hint),
+        (h.startup_check, r.startup_check),
+        (h.save_btn, r.save_btn),
+        (h.cancel_btn, r.cancel_btn),
+    ];
+    unsafe {
+        for (ctl, rc) in moves {
+            let _ = SetWindowPos(
+                ctl,
+                None,
+                rc.left,
+                rc.top,
+                rc.right - rc.left,
+                rc.bottom - rc.top,
+                SWP_NOZORDER,
+            );
+        }
     }
 }
 
@@ -302,8 +454,9 @@ fn create_controls(
     main: HWND,
     font: windows::Win32::Graphics::Gdi::HFONT,
     dpi: u32,
+    list_h: i32,
 ) -> Result<Hwnds> {
-    let r = compute_layout(dpi);
+    let r = compute_layout(dpi, list_h);
     unsafe {
         let hinstance = GetModuleHandleW(None)?;
 
@@ -333,10 +486,22 @@ fn create_controls(
         let content_w = r.listview.right - r.listview.left;
         let action_w = scale(185, dpi);
         let shortcut_w = scale(125, dpi);
-        let status_w = (content_w - action_w - shortcut_w).max(scale(80, dpi));
         insert_column(listview, 0, "Action", action_w);
         insert_column(listview, 1, "Shortcut", shortcut_w);
-        insert_column(listview, 2, "Status", status_w);
+        insert_column(
+            listview,
+            2,
+            "Status",
+            (content_w - action_w - shortcut_w).max(scale(80, dpi)),
+        );
+        // Fills the last column to the control's actual right edge, so
+        // there is no horizontal scrollbar regardless of rounding.
+        SendMessageW(
+            listview,
+            LVM_SETCOLUMNWIDTH,
+            Some(WPARAM(2)),
+            Some(LPARAM(LVSCW_AUTOSIZE_USEHEADER as isize)),
+        );
 
         let change_btn =
             create_button(main, hinstance, "Change...", ID_CHANGE, r.change_btn, false)?;
@@ -417,7 +582,9 @@ fn create_controls(
             change_btn,
             clear_btn,
             restore_btn,
+            size_label,
             sizes_edit,
+            hint_label,
             startup_check,
             save_btn,
             cancel_btn,
@@ -663,7 +830,7 @@ fn start_recording(h: &Hwnds, row: usize) {
     install_hook();
 }
 
-fn stop_recording(h: &Hwnds) -> Option<usize> {
+fn stop_recording() -> Option<usize> {
     remove_hook();
     let row = STAGED.with(|s| {
         s.borrow_mut()
@@ -673,7 +840,6 @@ fn stop_recording(h: &Hwnds) -> Option<usize> {
     if row.is_some() {
         app::resume_hotkeys();
     }
-    let _ = h;
     row
 }
 
@@ -747,6 +913,10 @@ fn inject_dummy_key() {
     }
 }
 
+// Reads modifier state here, synchronously at the key-down, and packs it
+// into the posted message. Reading it later in the window procedure would
+// race a fast release of the modifiers (for example a SendInput sequence
+// that sends all key-downs and then all key-ups with no delay).
 extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let kb = unsafe { &*(lparam.0 as *const KBDLLHOOKSTRUCT) };
@@ -762,6 +932,25 @@ extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
                 HookPhase::Idle => {}
                 HookPhase::Recording => {
                     if is_keydown {
+                        let ctrl = unsafe { GetAsyncKeyState(VK_CONTROL.0 as i32) } < 0;
+                        let alt = unsafe { GetAsyncKeyState(VK_MENU.0 as i32) } < 0;
+                        let shift = unsafe { GetAsyncKeyState(VK_SHIFT.0 as i32) } < 0;
+                        let win = unsafe { GetAsyncKeyState(VK_LWIN.0 as i32) } < 0
+                            || unsafe { GetAsyncKeyState(VK_RWIN.0 as i32) } < 0;
+                        let mut mods: isize = 0;
+                        if ctrl {
+                            mods |= MOD_BIT_CTRL;
+                        }
+                        if alt {
+                            mods |= MOD_BIT_ALT;
+                        }
+                        if shift {
+                            mods |= MOD_BIT_SHIFT;
+                        }
+                        if win {
+                            mods |= MOD_BIT_WIN;
+                        }
+
                         HOOK_PHASE.with(|p| p.set(HookPhase::SwallowingKeyUp(vk)));
                         if let Some(h) = HWNDS.with(|c| c.get()) {
                             unsafe {
@@ -769,7 +958,7 @@ extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
                                     Some(h.main),
                                     WM_APP_RECORDER_KEY,
                                     WPARAM(vk as usize),
-                                    LPARAM(0),
+                                    LPARAM(mods),
                                 );
                             }
                         }
@@ -791,22 +980,21 @@ extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
     unsafe { windows::Win32::UI::WindowsAndMessaging::CallNextHookEx(None, code, wparam, lparam) }
 }
 
-fn on_recorder_key(h: &Hwnds, vk: u16) {
+fn on_recorder_key(h: &Hwnds, vk: u16, mods: isize) {
     let Some(row) = STAGED.with(|s| s.borrow().as_ref().and_then(|st| st.recording_row)) else {
         return;
     };
 
     if vk == VK_ESCAPE.0 {
-        stop_recording(h);
+        stop_recording();
         refresh_row(h, row);
         return;
     }
 
-    let ctrl = unsafe { GetAsyncKeyState(VK_CONTROL.0 as i32) } < 0;
-    let alt = unsafe { GetAsyncKeyState(VK_MENU.0 as i32) } < 0;
-    let shift = unsafe { GetAsyncKeyState(VK_SHIFT.0 as i32) } < 0;
-    let win =
-        unsafe { GetAsyncKeyState(VK_LWIN.0 as i32) < 0 || GetAsyncKeyState(VK_RWIN.0 as i32) < 0 };
+    let ctrl = mods & MOD_BIT_CTRL != 0;
+    let alt = mods & MOD_BIT_ALT != 0;
+    let shift = mods & MOD_BIT_SHIFT != 0;
+    let win = mods & MOD_BIT_WIN != 0;
 
     if win {
         inject_dummy_key();
@@ -851,7 +1039,7 @@ fn on_recorder_key(h: &Hwnds, vk: u16) {
 
     let in_use = !test_register(h.main, candidate);
     stage_shortcut(row, Some(candidate));
-    stop_recording(h);
+    stop_recording();
     set_row_text(
         h,
         row,
@@ -977,15 +1165,6 @@ fn do_save(h: &Hwnds) {
     let new_config = Config { sizes, shortcuts };
     let failed = app::apply_new_config(new_config);
 
-    if !failed.is_empty() {
-        for (row, action) in Action::ALL.iter().enumerate() {
-            if failed.contains(action) {
-                set_item_text(h.listview, row as i32, 2, "In use by another app");
-            }
-        }
-        return;
-    }
-
     let checked = unsafe {
         SendMessageW(
             h.startup_check,
@@ -997,6 +1176,15 @@ fn do_save(h: &Hwnds) {
     let wants_startup = checked.0 != 0;
     if wants_startup != startup::is_enabled() {
         let _ = startup::set_enabled(wants_startup);
+    }
+
+    if !failed.is_empty() {
+        for (row, action) in Action::ALL.iter().enumerate() {
+            if failed.contains(action) {
+                set_item_text(h.listview, row as i32, 2, "In use by another app");
+            }
+        }
+        return;
     }
 
     close_window(h);
@@ -1024,46 +1212,10 @@ fn close_window(h: &Hwnds) {
             .map(|st| st.recording_row.is_some())
             .unwrap_or(false)
     }) {
-        stop_recording(h);
+        stop_recording();
     }
     unsafe {
         let _ = DestroyWindow(h.main);
-    }
-}
-
-fn reposition_controls(h: &Hwnds, dpi: u32) {
-    let r = compute_layout(dpi);
-    unsafe {
-        let _ = SetWindowPos(
-            h.listview,
-            None,
-            r.listview.left,
-            r.listview.top,
-            r.listview.right - r.listview.left,
-            r.listview.bottom - r.listview.top,
-            windows::Win32::UI::WindowsAndMessaging::SWP_NOZORDER,
-        );
-        let moves: [(HWND, RECT); 8] = [
-            (h.change_btn, r.change_btn),
-            (h.clear_btn, r.clear_btn),
-            (h.restore_btn, r.restore_btn),
-            (h.sizes_edit, r.sizes_edit),
-            (h.startup_check, r.startup_check),
-            (h.save_btn, r.save_btn),
-            (h.cancel_btn, r.cancel_btn),
-            (h.sizes_edit, r.sizes_edit),
-        ];
-        for (ctl, rc) in moves {
-            let _ = SetWindowPos(
-                ctl,
-                None,
-                rc.left,
-                rc.top,
-                rc.right - rc.left,
-                rc.bottom - rc.top,
-                windows::Win32::UI::WindowsAndMessaging::SWP_NOZORDER,
-            );
-        }
     }
 }
 
@@ -1071,13 +1223,12 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
     match msg {
         WM_APP_RECORDER_KEY => {
             if let Some(h) = HWNDS.with(|c| c.get()) {
-                on_recorder_key(&h, wparam.0 as u16);
+                on_recorder_key(&h, wparam.0 as u16, lparam.0);
             }
             LRESULT(0)
         }
         WM_COMMAND => {
             let id = (wparam.0 & 0xFFFF) as i32;
-            let notify_code = ((wparam.0 >> 16) & 0xFFFF) as u32;
             if let Some(h) = HWNDS.with(|c| c.get()) {
                 match id {
                     ID_CHANGE => do_change(&h),
@@ -1095,7 +1246,6 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     _ => {}
                 }
             }
-            let _ = notify_code;
             LRESULT(0)
         }
         WM_NOTIFY => {
@@ -1115,27 +1265,19 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             if let Some(mut h) = HWNDS.with(|c| c.get()) {
                 let dpi = (wparam.0 & 0xFFFF) as u32;
                 let suggested = unsafe { &*(lparam.0 as *const RECT) };
-                unsafe {
-                    let _ = SetWindowPos(
-                        hwnd,
-                        None,
-                        suggested.left,
-                        suggested.top,
-                        suggested.right - suggested.left,
-                        suggested.bottom - suggested.top,
-                        windows::Win32::UI::WindowsAndMessaging::SWP_NOZORDER,
-                    );
-                }
+
                 let old_font = h.font;
                 h.font = make_font(dpi);
                 HWNDS.with(|c| c.set(Some(h)));
-                reposition_controls(&h, dpi);
+
                 for ctl in [
                     h.listview,
                     h.change_btn,
                     h.clear_btn,
                     h.restore_btn,
+                    h.size_label,
                     h.sizes_edit,
+                    h.hint_label,
                     h.startup_check,
                     h.save_btn,
                     h.cancel_btn,
@@ -1152,6 +1294,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 unsafe {
                     let _ = DeleteObject(old_font.into());
                 }
+
+                fit_window_to_list(&h, dpi, Some((suggested.left, suggested.top)));
             }
             LRESULT(0)
         }
@@ -1169,7 +1313,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                         .map(|st| st.recording_row.is_some())
                         .unwrap_or(false)
                 }) {
-                    stop_recording(&h);
+                    stop_recording();
                 }
                 unsafe {
                     let _ = DeleteObject(h.font.into());
