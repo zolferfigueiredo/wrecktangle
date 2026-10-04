@@ -5,9 +5,9 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, PostQuitMessage, RegisterClassExW,
-    RegisterWindowMessageW, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_HOTKEY, WNDCLASSEXW,
-    WS_EX_TOOLWINDOW,
+    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, PostMessageW, PostQuitMessage,
+    RegisterClassExW, RegisterWindowMessageW, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_HOTKEY,
+    WM_SETTINGCHANGE, WNDCLASSEXW, WS_EX_TOOLWINDOW,
 };
 use windows::core::PCWSTR;
 use windows::core::w;
@@ -15,17 +15,27 @@ use windows::core::w;
 use crate::config::{self, Config};
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
-use crate::{tray, window_ops};
+use crate::theme;
+use crate::{takeover, tray, window_ops};
 
 pub const WINDOW_CLASS_NAME: PCWSTR = w!("WectangleMainWindow");
 pub const WM_APP_TRAY: u32 = WM_APP + 1;
 pub const WM_APP_OPEN_SETTINGS: u32 = WM_APP + 2;
+pub const WM_APP_THEME_CHANGED: u32 = WM_APP + 3;
+pub const WM_APP_TAKEOVER: u32 = WM_APP + 4;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Claim {
+    TakenOver,
+    Reserved,
+    HookFailed,
+}
 
 struct State {
     hwnd: HWND,
     config: Config,
     hotkeys: HashMap<i32, Action>,
-    registration_failed: Vec<Action>,
+    claims: HashMap<Action, Claim>,
     taskbar_created: u32,
     admin_notice_shown: bool,
 }
@@ -80,11 +90,13 @@ pub fn init() -> windows::core::Result<HWND> {
                 hwnd,
                 config,
                 hotkeys: HashMap::new(),
-                registration_failed: Vec::new(),
+                claims: HashMap::new(),
                 taskbar_created,
                 admin_notice_shown: false,
             });
         });
+
+        theme::apply_dark_menu(theme::current_mode() == theme::Mode::Dark);
 
         let failed = register_all(hwnd);
         tray::add(hwnd)?;
@@ -117,13 +129,37 @@ pub fn current_config() -> Config {
     })
 }
 
-pub fn registration_failed() -> Vec<Action> {
-    STATE.with(|s| {
-        s.borrow()
-            .as_ref()
-            .map(|st| st.registration_failed.clone())
-            .unwrap_or_default()
+/// Status text for an action whose shortcut RegisterHotKey refused, or None
+/// when it is registered normally.
+pub fn shortcut_note(action: Action) -> Option<String> {
+    let (claim, sc) = STATE.with(|s| {
+        let st = s.borrow();
+        let state = st.as_ref()?;
+        Some((
+            state.claims.get(&action).copied()?,
+            state.config.shortcuts.get(action)?,
+        ))
+    })?;
+    Some(match claim {
+        Claim::TakenOver => takeover_note(&sc),
+        Claim::Reserved => RESERVED_NOTE.to_string(),
+        Claim::HookFailed => "In use by another app".to_string(),
     })
+}
+
+/// Status text for a shortcut RegisterHotKey refused, before it is applied.
+pub fn candidate_note(sc: &Shortcut) -> String {
+    if takeover::is_reserved(sc) {
+        RESERVED_NOTE.to_string()
+    } else {
+        takeover_note(sc)
+    }
+}
+
+const RESERVED_NOTE: &str = "Reserved by Windows";
+
+fn takeover_note(_sc: &Shortcut) -> String {
+    "Overrides Windows or another app".to_string()
 }
 
 pub fn suspend_hotkeys() {
@@ -155,11 +191,13 @@ fn failed_message(failed: &[Action]) -> String {
             None => action.label().to_string(),
         })
         .collect();
-    format!("Already in use by another app: {}", names.join(", "))
+    format!("Could not use these shortcuts: {}", names.join(", "))
 }
 
 // Copies out what to register before calling RegisterHotKey, and only takes
 // the borrow again afterward to store the results, per the re-entrancy rule.
+// Shortcuts RegisterHotKey refuses go to the takeover hook; the returned
+// actions are the ones that still do not work.
 fn register_all(hwnd: HWND) -> Vec<Action> {
     let entries: Vec<(i32, Action, Shortcut)> = STATE.with(|s| {
         let st = s.borrow();
@@ -177,25 +215,48 @@ fn register_all(hwnd: HWND) -> Vec<Action> {
     });
 
     let mut hotkeys = HashMap::new();
-    let mut failed = Vec::new();
+    let mut refused: Vec<(Action, Shortcut)> = Vec::new();
     for (id, action, sc) in entries {
         let modifiers = shortcut::hotkey_modifiers(&sc);
         let registered = unsafe { RegisterHotKey(Some(hwnd), id, modifiers, sc.vk as u32) };
         if registered.is_ok() {
             hotkeys.insert(id, action);
         } else {
-            failed.push(action);
+            refused.push((action, sc));
+        }
+    }
+
+    let hookable: Vec<(Action, Shortcut)> = refused
+        .iter()
+        .filter(|(_, sc)| !takeover::is_reserved(sc))
+        .copied()
+        .collect();
+    let hooked = takeover::start(hwnd, &hookable);
+
+    let mut claims = HashMap::new();
+    let mut unavailable = Vec::new();
+    for (action, sc) in &refused {
+        let claim = if takeover::is_reserved(sc) {
+            Claim::Reserved
+        } else if hooked {
+            Claim::TakenOver
+        } else {
+            Claim::HookFailed
+        };
+        claims.insert(*action, claim);
+        if claim != Claim::TakenOver {
+            unavailable.push(*action);
         }
     }
 
     STATE.with(|s| {
         if let Some(state) = s.borrow_mut().as_mut() {
             state.hotkeys = hotkeys;
-            state.registration_failed = failed.clone();
+            state.claims = claims;
         }
     });
 
-    failed
+    unavailable
 }
 
 fn unregister_all(hwnd: HWND) {
@@ -210,9 +271,11 @@ fn unregister_all(hwnd: HWND) {
             let _ = UnregisterHotKey(Some(hwnd), id);
         }
     }
+    takeover::stop();
     STATE.with(|s| {
         if let Some(state) = s.borrow_mut().as_mut() {
             state.hotkeys.clear();
+            state.claims.clear();
         }
     });
 }
@@ -231,6 +294,20 @@ fn mark_admin_notice_shown() -> bool {
     })
 }
 
+fn run_action(hwnd: HWND, action: Action) {
+    let config = STATE.with(|s| s.borrow().as_ref().map(|st| st.config.clone()));
+    if let Some(config) = config
+        && let window_ops::ActionResult::AdminBlocked = window_ops::apply_action(action, &config)
+        && !mark_admin_notice_shown()
+    {
+        tray::notify(
+            hwnd,
+            "Wectangle",
+            "That window is running as administrator and cannot be moved.",
+        );
+    }
+}
+
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_HOTKEY => {
@@ -239,17 +316,21 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     .as_ref()
                     .and_then(|st| st.hotkeys.get(&(wparam.0 as i32)).copied())
             });
-            let config = STATE.with(|s| s.borrow().as_ref().map(|st| st.config.clone()));
-            if let (Some(action), Some(config)) = (action, config)
-                && let window_ops::ActionResult::AdminBlocked =
-                    window_ops::apply_action(action, &config)
-                && !mark_admin_notice_shown()
-            {
-                tray::notify(
-                    hwnd,
-                    "Wectangle",
-                    "That window is running as administrator and cannot be moved.",
-                );
+            if let Some(action) = action {
+                run_action(hwnd, action);
+            }
+            LRESULT(0)
+        }
+        WM_APP_TAKEOVER => {
+            let action = takeover::action_from_id(wparam.0).filter(|action| {
+                STATE.with(|s| {
+                    s.borrow()
+                        .as_ref()
+                        .is_some_and(|st| st.claims.get(action) == Some(&Claim::TakenOver))
+                })
+            });
+            if let Some(action) = action {
+                run_action(hwnd, action);
             }
             LRESULT(0)
         }
@@ -260,6 +341,22 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         WM_APP_OPEN_SETTINGS => {
             crate::settings::open();
             LRESULT(0)
+        }
+        WM_SETTINGCHANGE => {
+            if theme::is_immersive_color_set_change(lparam) {
+                theme::apply_dark_menu(theme::current_mode() == theme::Mode::Dark);
+                if let Some(settings_hwnd) = crate::settings::hwnd() {
+                    unsafe {
+                        let _ = PostMessageW(
+                            Some(settings_hwnd),
+                            WM_APP_THEME_CHANGED,
+                            WPARAM(0),
+                            LPARAM(0),
+                        );
+                    }
+                }
+            }
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
         WM_DESTROY => {
             unregister_all(hwnd);
