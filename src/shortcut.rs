@@ -1,5 +1,6 @@
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyboardLayout, MAPVK_VK_TO_VSC, MapVirtualKeyExW, ToUnicodeEx, VK_CONTROL, VK_MENU,
+    GetKeyboardLayout, HOT_KEY_MODIFIERS, MAPVK_VK_TO_VSC, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
+    MOD_SHIFT, MOD_WIN, MapVirtualKeyExW, ToUnicodeEx, VK_CONTROL, VK_MENU,
 };
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
@@ -140,6 +141,27 @@ pub fn format(shortcut: &Shortcut) -> String {
     }
     parts.push(lookup_name(shortcut.vk).unwrap_or_else(|| format!("VK_{:#X}", shortcut.vk)));
     parts.join("+")
+}
+
+pub fn key_name(shortcut: &Shortcut) -> String {
+    lookup_name(shortcut.vk).unwrap_or_else(|| format!("VK_{:#X}", shortcut.vk))
+}
+
+pub fn hotkey_modifiers(shortcut: &Shortcut) -> HOT_KEY_MODIFIERS {
+    let mut m = MOD_NOREPEAT;
+    if shortcut.ctrl {
+        m |= MOD_CONTROL;
+    }
+    if shortcut.alt {
+        m |= MOD_ALT;
+    }
+    if shortcut.shift {
+        m |= MOD_SHIFT;
+    }
+    if shortcut.win {
+        m |= MOD_WIN;
+    }
+    m
 }
 
 // On the US-International layout, Ctrl+Alt is the same chord as AltGr, so a

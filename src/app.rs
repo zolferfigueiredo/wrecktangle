@@ -3,10 +3,7 @@ use std::collections::HashMap;
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    HOT_KEY_MODIFIERS, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, MOD_WIN, RegisterHotKey,
-    UnregisterHotKey,
-};
+use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 use windows::Win32::UI::WindowsAndMessaging::{
     CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, PostQuitMessage, RegisterClassExW,
     RegisterWindowMessageW, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_HOTKEY, WNDCLASSEXW,
@@ -17,7 +14,7 @@ use windows::core::w;
 
 use crate::config::{self, Config};
 use crate::layout::Action;
-use crate::shortcut::Shortcut;
+use crate::shortcut::{self, Shortcut};
 use crate::{tray, window_ops};
 
 pub const WINDOW_CLASS_NAME: PCWSTR = w!("WectangleMainWindow");
@@ -154,28 +151,11 @@ fn failed_message(failed: &[Action]) -> String {
     let names: Vec<String> = failed
         .iter()
         .map(|&action| match config.shortcuts.get(action) {
-            Some(sc) => format!("{} ({})", action.label(), crate::shortcut::format(&sc)),
+            Some(sc) => format!("{} ({})", action.label(), shortcut::format(&sc)),
             None => action.label().to_string(),
         })
         .collect();
     format!("Already in use by another app: {}", names.join(", "))
-}
-
-fn modifiers_for(sc: &Shortcut) -> HOT_KEY_MODIFIERS {
-    let mut m = MOD_NOREPEAT;
-    if sc.ctrl {
-        m |= MOD_CONTROL;
-    }
-    if sc.alt {
-        m |= MOD_ALT;
-    }
-    if sc.shift {
-        m |= MOD_SHIFT;
-    }
-    if sc.win {
-        m |= MOD_WIN;
-    }
-    m
 }
 
 // Copies out what to register before calling RegisterHotKey, and only takes
@@ -199,7 +179,7 @@ fn register_all(hwnd: HWND) -> Vec<Action> {
     let mut hotkeys = HashMap::new();
     let mut failed = Vec::new();
     for (id, action, sc) in entries {
-        let modifiers = modifiers_for(&sc);
+        let modifiers = shortcut::hotkey_modifiers(&sc);
         let registered = unsafe { RegisterHotKey(Some(hwnd), id, modifiers, sc.vk as u32) };
         if registered.is_ok() {
             hotkeys.insert(id, action);

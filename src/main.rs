@@ -13,7 +13,7 @@ use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, LPARAM, WPAR
 use windows::Win32::System::Threading::CreateMutexW;
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, DispatchMessageW, FindWindowW, GetMessageW, GetWindowThreadProcessId,
-    MSG, PostMessageW, TranslateMessage,
+    IsDialogMessageW, MSG, PostMessageW, TranslateMessage,
 };
 use windows::core::w;
 
@@ -45,8 +45,14 @@ fn main() {
 
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).into() {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+            let handled = match settings::hwnd() {
+                Some(settings_hwnd) => IsDialogMessageW(settings_hwnd, &msg).as_bool(),
+                None => false,
+            };
+            if !handled {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
         }
 
         if let Ok(handle) = mutex {
