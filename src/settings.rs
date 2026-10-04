@@ -2,7 +2,8 @@ use std::cell::{Cell, RefCell};
 
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    COLOR_BTNFACE, CreateFontIndirectW, DeleteObject, GetSysColorBrush, LOGFONTW,
+    COLOR_BTNFACE, CreateFontIndirectW, DeleteObject, FillRect, GetSysColorBrush, InvalidateRect,
+    LOGFONTW, SetBkMode, SetTextColor, TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
@@ -22,11 +23,12 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL, GetWindowTextW,
-    HMENU, ICON_BIG, ICON_SMALL, IDCANCEL, IDOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED, PostMessageW,
-    RegisterClassExW, SW_SHOW, SWP_NOMOVE, SWP_NOZORDER, SendMessageW, SetForegroundWindow,
-    SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE, WM_APP, WM_CLOSE,
-    WM_COMMAND, WM_DESTROY, WM_DPICHANGED, WM_KEYDOWN, WM_KEYUP, WM_NOTIFY, WM_SETFONT, WM_SETICON,
+    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL, GetClientRect,
+    GetWindowTextW, HMENU, ICON_BIG, ICON_SMALL, IDCANCEL, IDOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED,
+    PostMessageW, RegisterClassExW, SW_SHOW, SWP_NOMOVE, SWP_NOZORDER, SendMessageW,
+    SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE,
+    WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY,
+    WM_DPICHANGED, WM_ERASEBKGND, WM_KEYDOWN, WM_KEYUP, WM_NOTIFY, WM_SETFONT, WM_SETICON,
     WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSEXW, WS_CAPTION, WS_CHILD, WS_EX_CLIENTEDGE, WS_GROUP,
     WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
@@ -38,6 +40,53 @@ use crate::shortcut::{self, Shortcut};
 use crate::theme;
 use crate::{app, startup};
 
+// Stand-ins for the API the feature/owners-and-updates branch is building.
+// Replace each with the real crate::update / app::shortcut_note call once
+// that branch merges, and delete this block.
+#[derive(Clone)]
+enum UpdateState {
+    #[allow(dead_code)]
+    Idle,
+    #[allow(dead_code)]
+    Checking,
+    UpToDate {
+        #[allow(dead_code)]
+        checked_at: u64,
+    },
+    #[allow(dead_code)]
+    Available { version: String, url: String },
+    #[allow(dead_code)]
+    Failed(String),
+}
+
+fn update_state() -> UpdateState {
+    UpdateState::UpToDate { checked_at: 0 }
+}
+fn update_check_now() {}
+fn update_open_download(_url: &str) {}
+fn update_auto_enabled() -> bool {
+    true
+}
+fn update_set_auto(_enabled: bool) {}
+fn update_current_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+fn shortcut_note(_action: Action) -> Option<String> {
+    None
+}
+
+fn update_status_line(state: &UpdateState) -> String {
+    match state {
+        UpdateState::Idle => format!("Version {}", update_current_version()),
+        UpdateState::Checking => "Checking...".to_string(),
+        UpdateState::UpToDate { .. } => {
+            format!("Version {} \u{b7} Up to date", update_current_version())
+        }
+        UpdateState::Available { version, .. } => format!("Version {version} is available"),
+        UpdateState::Failed(msg) => format!("Update check failed: {msg}"),
+    }
+}
+
 const WINDOW_CLASS_NAME: PCWSTR = w!("WectangleSettingsWindow");
 
 const ID_LISTVIEW: i32 = 101;
@@ -46,6 +95,9 @@ const ID_CLEAR: i32 = 103;
 const ID_RESTORE: i32 = 104;
 const ID_SIZES_EDIT: i32 = 105;
 const ID_STARTUP_CHECK: i32 = 106;
+const ID_AUTO_UPDATE_CHECK: i32 = 107;
+const ID_CHECK_NOW: i32 = 108;
+const ID_DOWNLOAD: i32 = 109;
 const ID_SAVE: i32 = IDOK.0;
 const ID_CANCEL: i32 = IDCANCEL.0;
 const ID_TEST_HOTKEY: i32 = 999;
@@ -78,9 +130,14 @@ struct Hwnds {
     sizes_edit: HWND,
     hint_label: HWND,
     startup_check: HWND,
+    auto_update_check: HWND,
+    check_now_btn: HWND,
+    update_status: HWND,
+    download_btn: HWND,
     save_btn: HWND,
     cancel_btn: HWND,
     font: windows::Win32::Graphics::Gdi::HFONT,
+    bg_brush: windows::Win32::Graphics::Gdi::HBRUSH,
 }
 
 struct Staged {
@@ -213,6 +270,19 @@ fn create_window() -> Result<()> {
             Some(WPARAM(checked)),
             Some(LPARAM(0)),
         );
+        let auto_update_checked = if update_auto_enabled() {
+            1usize
+        } else {
+            0usize
+        };
+        SendMessageW(
+            hwnds.auto_update_check,
+            windows::Win32::UI::WindowsAndMessaging::BM_SETCHECK,
+            Some(WPARAM(auto_update_checked)),
+            Some(LPARAM(0)),
+        );
+        refresh_update_status(&hwnds);
+        apply_dark_mode(&hwnds);
 
         set_window_icons(main);
         let _ = ShowWindow(main, SW_SHOW);
@@ -244,6 +314,73 @@ fn set_window_icons(hwnd: HWND) {
                 Some(LPARAM(small.0 as isize)),
             );
         }
+    }
+}
+
+// Dark/light theming for the standard controls: SetWindowTheme flips the
+// ListView, buttons and checkboxes (and the ListView's own scrollbars) to
+// the dark visual style; the ListView's header is a separate child window
+// and needs its own theme name. Re-run on every WM_APP_THEME_CHANGED so a
+// live theme switch is picked up without reopening the window.
+fn apply_dark_mode(h: &Hwnds) {
+    let dark = theme::current_mode() == theme::Mode::Dark;
+    let sub_app = if dark {
+        w!("DarkMode_Explorer")
+    } else {
+        w!("")
+    };
+    unsafe {
+        for ctl in [
+            h.listview,
+            h.change_btn,
+            h.clear_btn,
+            h.restore_btn,
+            h.startup_check,
+            h.auto_update_check,
+            h.check_now_btn,
+            h.download_btn,
+            h.save_btn,
+            h.cancel_btn,
+        ] {
+            let _ = windows::Win32::UI::Controls::SetWindowTheme(ctl, sub_app, None);
+        }
+        let header = SendMessageW(
+            h.listview,
+            windows::Win32::UI::Controls::LVM_GETHEADER,
+            None,
+            None,
+        );
+        let header_hwnd = HWND(header.0 as *mut core::ffi::c_void);
+        if !header_hwnd.is_invalid() {
+            let header_sub_app = if dark {
+                w!("DarkMode_ItemsView")
+            } else {
+                w!("")
+            };
+            let _ = windows::Win32::UI::Controls::SetWindowTheme(header_hwnd, header_sub_app, None);
+        }
+
+        let palette = theme::themed_palette(theme::current_mode());
+        let bg = colorref(palette.bg);
+        let text = colorref(palette.text);
+        SendMessageW(
+            h.listview,
+            windows::Win32::UI::Controls::LVM_SETBKCOLOR,
+            None,
+            Some(LPARAM(bg.0 as isize)),
+        );
+        SendMessageW(
+            h.listview,
+            windows::Win32::UI::Controls::LVM_SETTEXTBKCOLOR,
+            None,
+            Some(LPARAM(bg.0 as isize)),
+        );
+        SendMessageW(
+            h.listview,
+            windows::Win32::UI::Controls::LVM_SETTEXTCOLOR,
+            None,
+            Some(LPARAM(text.0 as isize)),
+        );
     }
 }
 
@@ -309,6 +446,10 @@ struct Rects {
     sizes_edit: RECT,
     size_hint: RECT,
     startup_check: RECT,
+    auto_update_check: RECT,
+    update_status: RECT,
+    check_now_btn: RECT,
+    download_btn: RECT,
     save_btn: RECT,
     cancel_btn: RECT,
 }
@@ -339,7 +480,10 @@ fn compute_layout(dpi: u32, list_h: i32) -> Rects {
     let size_edit_y = size_label_y + scale(18, dpi);
     let size_hint_y = size_edit_y + scale(24, dpi);
     let startup_y = size_hint_y + scale(22, dpi);
-    let bottom_btn_y = startup_y + scale(28, dpi);
+    let auto_update_y = startup_y + scale(24, dpi);
+    let update_row_y = auto_update_y + scale(24, dpi);
+    let update_row_h = scale(24, dpi);
+    let bottom_btn_y = update_row_y + update_row_h + scale(16, dpi);
     let bottom_btn_h = scale(26, dpi);
 
     Rects {
@@ -361,6 +505,20 @@ fn compute_layout(dpi: u32, list_h: i32) -> Rects {
         sizes_edit: px(margin, size_edit_y, content_w, scale(22, dpi)),
         size_hint: px(margin, size_hint_y, content_w, scale(16, dpi)),
         startup_check: px(margin, startup_y, content_w, scale(20, dpi)),
+        auto_update_check: px(margin, auto_update_y, content_w, scale(20, dpi)),
+        update_status: px(margin, update_row_y, scale(260, dpi), update_row_h),
+        download_btn: px(
+            total_w - margin - scale(170, dpi),
+            update_row_y - scale(2, dpi),
+            scale(80, dpi),
+            update_row_h,
+        ),
+        check_now_btn: px(
+            total_w - margin - scale(84, dpi),
+            update_row_y - scale(2, dpi),
+            scale(84, dpi),
+            update_row_h,
+        ),
         save_btn: px(
             total_w - margin - scale(168, dpi),
             bottom_btn_y,
@@ -426,7 +584,7 @@ fn fit_window_to_list(h: &Hwnds, dpi: u32, pos: Option<(i32, i32)>) {
 }
 
 fn apply_layout(h: &Hwnds, r: &Rects) {
-    let moves: [(HWND, RECT); 10] = [
+    let moves: [(HWND, RECT); 14] = [
         (h.listview, r.listview),
         (h.change_btn, r.change_btn),
         (h.clear_btn, r.clear_btn),
@@ -435,6 +593,10 @@ fn apply_layout(h: &Hwnds, r: &Rects) {
         (h.sizes_edit, r.sizes_edit),
         (h.hint_label, r.size_hint),
         (h.startup_check, r.startup_check),
+        (h.auto_update_check, r.auto_update_check),
+        (h.update_status, r.update_status),
+        (h.check_now_btn, r.check_now_btn),
+        (h.download_btn, r.download_btn),
         (h.save_btn, r.save_btn),
         (h.cancel_btn, r.cancel_btn),
     ];
@@ -556,6 +718,32 @@ fn create_controls(
             true,
         )?;
 
+        let auto_update_check = create_button(
+            main,
+            hinstance,
+            "Check for updates automatically",
+            ID_AUTO_UPDATE_CHECK,
+            r.auto_update_check,
+            true,
+        )?;
+        let update_status = create_static(main, hinstance, "", r.update_status)?;
+        let check_now_btn = create_button(
+            main,
+            hinstance,
+            "Check now",
+            ID_CHECK_NOW,
+            r.check_now_btn,
+            false,
+        )?;
+        let download_btn = create_button(
+            main,
+            hinstance,
+            "Download",
+            ID_DOWNLOAD,
+            r.download_btn,
+            false,
+        )?;
+
         let save_btn = create_default_button(main, hinstance, "Save", ID_SAVE, r.save_btn)?;
         let cancel_btn = create_button(main, hinstance, "Cancel", ID_CANCEL, r.cancel_btn, false)?;
 
@@ -568,6 +756,10 @@ fn create_controls(
             sizes_edit,
             hint_label,
             startup_check,
+            auto_update_check,
+            update_status,
+            check_now_btn,
+            download_btn,
             save_btn,
             cancel_btn,
         ] {
@@ -579,6 +771,10 @@ fn create_controls(
             );
         }
 
+        let bg_brush = windows::Win32::Graphics::Gdi::CreateSolidBrush(colorref(
+            theme::themed_palette(theme::current_mode()).bg,
+        ));
+
         Ok(Hwnds {
             main,
             listview,
@@ -589,11 +785,20 @@ fn create_controls(
             sizes_edit,
             hint_label,
             startup_check,
+            auto_update_check,
+            check_now_btn,
+            update_status,
+            download_btn,
             save_btn,
             cancel_btn,
             font,
+            bg_brush,
         })
     }
+}
+
+fn colorref(c: theme::Rgb) -> windows::Win32::Foundation::COLORREF {
+    windows::Win32::Foundation::COLORREF(c.r as u32 | (c.g as u32) << 8 | (c.b as u32) << 16)
 }
 
 fn create_button(
@@ -758,9 +963,9 @@ fn selected_row(listview: HWND) -> Option<usize> {
     }
 }
 
-fn status_text(sc: Option<Shortcut>, in_use: bool) -> String {
+fn status_text(action: Action, sc: Option<Shortcut>, in_use: bool) -> String {
     if in_use {
-        return "In use by another app".to_string();
+        return shortcut_note(action).unwrap_or_else(|| "In use by another app".to_string());
     }
     match sc.and_then(|s| shortcut::altgr_char(&s)) {
         Some(ch) => format!(
@@ -769,6 +974,47 @@ fn status_text(sc: Option<Shortcut>, in_use: bool) -> String {
         ),
         None => String::new(),
     }
+}
+
+fn refresh_update_status(h: &Hwnds) {
+    let state = update_state();
+    unsafe {
+        let _ = SetWindowTextW(
+            h.update_status,
+            PCWSTR::from_raw(to_wide(&update_status_line(&state)).as_ptr()),
+        );
+    }
+    let show_download = matches!(state, UpdateState::Available { .. });
+    unsafe {
+        let _ = ShowWindow(
+            h.download_btn,
+            if show_download {
+                SW_SHOW
+            } else {
+                windows::Win32::UI::WindowsAndMessaging::SW_HIDE
+            },
+        );
+    }
+}
+
+/// Called by the update checker (once wired in) whenever its state
+/// changes, so an open Settings window reflects it without polling.
+// Not yet called from this branch: app.rs's tray item and notification
+// click (feature/owners-and-updates) are the real callers, wired in after
+// that branch merges.
+#[allow(dead_code)]
+pub fn on_update_state_changed() {
+    if let Some(h) = HWNDS.with(|c| c.get()) {
+        refresh_update_status(&h);
+    }
+}
+
+/// Opens Settings (there is only one tab's worth of content in this
+/// native-controls window; the name matches the API the General-tab-aware
+/// caller expects).
+#[allow(dead_code)]
+pub fn open_general_tab() {
+    open();
 }
 
 fn populate_listview(h: &Hwnds, shortcuts: &crate::config::Shortcuts) {
@@ -786,7 +1032,7 @@ fn populate_listview(h: &Hwnds, shortcuts: &crate::config::Shortcuts) {
             h.listview,
             row as i32,
             2,
-            &status_text(sc, failed.contains(action)),
+            &status_text(*action, sc, failed.contains(action)),
         );
     }
 }
@@ -804,7 +1050,12 @@ fn refresh_row(h: &Hwnds, row: usize) {
         1,
         &sc.map(|s| shortcut::format(&s)).unwrap_or_default(),
     );
-    set_item_text(h.listview, row as i32, 2, &status_text(sc, false));
+    set_item_text(
+        h.listview,
+        row as i32,
+        2,
+        &status_text(Action::ALL[row], sc, false),
+    );
 }
 
 fn set_row_text(h: &Hwnds, row: usize, shortcut_col: &str, status_col: &str) {
@@ -1047,7 +1298,7 @@ fn on_recorder_key(h: &Hwnds, vk: u16, mods: isize) {
         h,
         row,
         &shortcut::format(&candidate),
-        &status_text(Some(candidate), in_use),
+        &status_text(Action::ALL[row], Some(candidate), in_use),
     );
 }
 
@@ -1246,6 +1497,26 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                         }
                     }
                     ID_CANCEL => do_cancel(&h),
+                    ID_AUTO_UPDATE_CHECK => {
+                        let checked = unsafe {
+                            SendMessageW(
+                                h.auto_update_check,
+                                windows::Win32::UI::WindowsAndMessaging::BM_GETCHECK,
+                                None,
+                                None,
+                            )
+                        };
+                        update_set_auto(checked.0 != 0);
+                    }
+                    ID_CHECK_NOW => {
+                        update_check_now();
+                        refresh_update_status(&h);
+                    }
+                    ID_DOWNLOAD => {
+                        if let UpdateState::Available { url, .. } = update_state() {
+                            update_open_download(&url);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -1282,6 +1553,10 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     h.sizes_edit,
                     h.hint_label,
                     h.startup_check,
+                    h.auto_update_check,
+                    h.update_status,
+                    h.check_now_btn,
+                    h.download_btn,
                     h.save_btn,
                     h.cancel_btn,
                 ] {
@@ -1305,8 +1580,51 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         msg if msg == app::WM_APP_THEME_CHANGED => {
             if let Some(h) = HWNDS.with(|c| c.get()) {
                 theme::apply_title_bar(h.main, theme::current_mode() == theme::Mode::Dark);
+                apply_dark_mode(&h);
+                unsafe {
+                    let old = h.bg_brush;
+                    let new_brush = windows::Win32::Graphics::Gdi::CreateSolidBrush(colorref(
+                        theme::themed_palette(theme::current_mode()).bg,
+                    ));
+                    HWNDS.with(|c| {
+                        c.set(Some(Hwnds {
+                            bg_brush: new_brush,
+                            ..h
+                        }))
+                    });
+                    let _ = DeleteObject(old.into());
+                    let _ = InvalidateRect(Some(h.main), None, true);
+                }
             }
             LRESULT(0)
+        }
+        WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT => {
+            if let Some(h) = HWNDS.with(|c| c.get()) {
+                let palette = theme::themed_palette(theme::current_mode());
+                unsafe {
+                    let hdc =
+                        windows::Win32::Graphics::Gdi::HDC(wparam.0 as *mut core::ffi::c_void);
+                    SetBkMode(hdc, TRANSPARENT);
+                    SetTextColor(hdc, colorref(palette.text));
+                    LRESULT(h.bg_brush.0 as isize)
+                }
+            } else {
+                unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+            }
+        }
+        WM_ERASEBKGND => {
+            if let Some(h) = HWNDS.with(|c| c.get()) {
+                unsafe {
+                    let hdc =
+                        windows::Win32::Graphics::Gdi::HDC(wparam.0 as *mut core::ffi::c_void);
+                    let mut rc = RECT::default();
+                    let _ = GetClientRect(hwnd, &mut rc);
+                    FillRect(hdc, &rc, h.bg_brush);
+                }
+                LRESULT(1)
+            } else {
+                unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+            }
         }
         WM_CLOSE => {
             if let Some(h) = HWNDS.with(|c| c.get()) {
@@ -1326,6 +1644,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 }
                 unsafe {
                     let _ = DeleteObject(h.font.into());
+                    let _ = DeleteObject(h.bg_brush.into());
                 }
             }
             STAGED.with(|s| *s.borrow_mut() = None);

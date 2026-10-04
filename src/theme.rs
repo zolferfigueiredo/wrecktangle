@@ -19,6 +19,87 @@ pub enum Mode {
     Dark,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rgb {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+impl Rgb {
+    pub const fn new(r: u8, g: u8, b: u8) -> Rgb {
+        Rgb { r, g, b }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Palette {
+    pub bg: Rgb,
+    pub surface: Rgb,
+    pub surface_hover: Rgb,
+    pub border: Rgb,
+    pub text: Rgb,
+    pub text_muted: Rgb,
+    pub accent: Rgb,
+    pub warning: Rgb,
+    pub info: Rgb,
+}
+
+const FALLBACK_ACCENT: Rgb = Rgb::new(0x00, 0x78, 0xD4);
+
+pub fn light() -> Palette {
+    Palette {
+        bg: Rgb::new(0xF3, 0xF3, 0xF3),
+        surface: Rgb::new(0xFF, 0xFF, 0xFF),
+        surface_hover: Rgb::new(0xEC, 0xEC, 0xEC),
+        border: Rgb::new(0xE1, 0xE1, 0xE1),
+        text: Rgb::new(0x1A, 0x1A, 0x1A),
+        text_muted: Rgb::new(0x6B, 0x6B, 0x6B),
+        accent: FALLBACK_ACCENT,
+        warning: Rgb::new(0x9D, 0x5D, 0x00),
+        info: Rgb::new(0x00, 0x5F, 0xB8),
+    }
+}
+
+pub fn dark() -> Palette {
+    Palette {
+        bg: Rgb::new(0x20, 0x20, 0x20),
+        surface: Rgb::new(0x2C, 0x2C, 0x2C),
+        surface_hover: Rgb::new(0x38, 0x38, 0x38),
+        border: Rgb::new(0x45, 0x45, 0x45),
+        text: Rgb::new(0xF2, 0xF2, 0xF2),
+        text_muted: Rgb::new(0x9C, 0x9C, 0x9C),
+        accent: FALLBACK_ACCENT,
+        warning: Rgb::new(0xFF, 0xC8, 0x3D),
+        info: Rgb::new(0x60, 0xCD, 0xFF),
+    }
+}
+
+pub fn palette(mode: Mode) -> Palette {
+    match mode {
+        Mode::Light => light(),
+        Mode::Dark => dark(),
+    }
+}
+
+// Same palette as `palette`, with the live system accent color (or the
+// fallback) filled in.
+pub fn themed_palette(mode: Mode) -> Palette {
+    let mut p = palette(mode);
+    p.accent = accent();
+    p
+}
+
+// The registry stores AccentColor as a packed ABGR DWORD: byte 0 is red,
+// byte 1 green, byte 2 blue, byte 3 alpha (alpha is unused here).
+fn accent_color_from_abgr(v: u32) -> Rgb {
+    Rgb::new(
+        (v & 0xFF) as u8,
+        ((v >> 8) & 0xFF) as u8,
+        ((v >> 16) & 0xFF) as u8,
+    )
+}
+
 #[cfg(windows)]
 fn read_dword(subkey: PCWSTR, value: PCWSTR) -> Option<u32> {
     unsafe {
@@ -45,6 +126,24 @@ fn system_prefers_light() -> bool {
     )
     .map(|v| v != 0)
     .unwrap_or(true)
+}
+
+#[cfg(windows)]
+fn system_accent_raw() -> Option<u32> {
+    read_dword(w!("Software\\Microsoft\\Windows\\DWM"), w!("AccentColor"))
+}
+
+pub fn accent() -> Rgb {
+    #[cfg(windows)]
+    {
+        system_accent_raw()
+            .map(accent_color_from_abgr)
+            .unwrap_or(FALLBACK_ACCENT)
+    }
+    #[cfg(not(windows))]
+    {
+        FALLBACK_ACCENT
+    }
 }
 
 // `WECTANGLE_THEME=light|dark` overrides the system theme, so both themes
@@ -136,6 +235,49 @@ pub fn is_immersive_color_set_change(lparam: LPARAM) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn light_and_dark_backgrounds_differ() {
+        assert_ne!(light().bg, dark().bg);
+    }
+
+    #[test]
+    fn dark_background_is_darker_than_light_background() {
+        let luminance = |c: Rgb| c.r as u32 + c.g as u32 + c.b as u32;
+        assert!(luminance(dark().bg) < luminance(light().bg));
+    }
+
+    #[test]
+    fn dark_text_is_lighter_than_dark_background() {
+        let p = dark();
+        let luminance = |c: Rgb| c.r as u32 + c.g as u32 + c.b as u32;
+        assert!(luminance(p.text) > luminance(p.bg));
+    }
+
+    #[test]
+    fn light_text_is_darker_than_light_background() {
+        let p = light();
+        let luminance = |c: Rgb| c.r as u32 + c.g as u32 + c.b as u32;
+        assert!(luminance(p.text) < luminance(p.bg));
+    }
+
+    #[test]
+    fn surface_hover_differs_from_surface() {
+        assert_ne!(light().surface, light().surface_hover);
+        assert_ne!(dark().surface, dark().surface_hover);
+    }
+
+    #[test]
+    fn accent_color_parses_abgr_dword() {
+        // #0078D4 packed as ABGR (alpha 0xFF, blue 0xD4, green 0x78, red 0x00).
+        assert_eq!(accent_color_from_abgr(0xFFD47800), FALLBACK_ACCENT);
+    }
+
+    #[test]
+    fn palette_selects_by_mode() {
+        assert_eq!(palette(Mode::Light), light());
+        assert_eq!(palette(Mode::Dark), dark());
+    }
 
     // One test, not three: std::env mutation is process-global, and cargo
     // test runs tests on multiple threads by default, so separate tests
