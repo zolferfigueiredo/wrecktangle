@@ -39,50 +39,7 @@ use crate::config::{self, Config};
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
 use crate::theme;
-use crate::{app, startup, takeover};
-
-// Stand-ins for the crate::update API; replaced by the real calls when the
-// update checker lands.
-#[derive(Clone)]
-enum UpdateState {
-    #[allow(dead_code)]
-    Idle,
-    #[allow(dead_code)]
-    Checking,
-    UpToDate {
-        #[allow(dead_code)]
-        checked_at: u64,
-    },
-    #[allow(dead_code)]
-    Available { version: String, url: String },
-    #[allow(dead_code)]
-    Failed(String),
-}
-
-fn update_state() -> UpdateState {
-    UpdateState::UpToDate { checked_at: 0 }
-}
-fn update_check_now() {}
-fn update_open_download(_url: &str) {}
-fn update_auto_enabled() -> bool {
-    true
-}
-fn update_set_auto(_enabled: bool) {}
-fn update_current_version() -> &'static str {
-    env!("CARGO_PKG_VERSION")
-}
-
-fn update_status_line(state: &UpdateState) -> String {
-    match state {
-        UpdateState::Idle => format!("Version {}", update_current_version()),
-        UpdateState::Checking => "Checking...".to_string(),
-        UpdateState::UpToDate { .. } => {
-            format!("Version {} \u{b7} Up to date", update_current_version())
-        }
-        UpdateState::Available { version, .. } => format!("Version {version} is available"),
-        UpdateState::Failed(msg) => format!("Update check failed: {msg}"),
-    }
-}
+use crate::{app, startup, takeover, update};
 
 const WINDOW_CLASS_NAME: PCWSTR = w!("WectangleSettingsWindow");
 
@@ -273,7 +230,7 @@ fn create_window() -> Result<()> {
             Some(WPARAM(checked)),
             Some(LPARAM(0)),
         );
-        let auto_update_checked = if update_auto_enabled() {
+        let auto_update_checked = if update::auto_enabled() {
             1usize
         } else {
             0usize
@@ -539,7 +496,12 @@ fn compute_layout(dpi: u32, list_h: i32) -> Rects {
         size_hint: px(margin, size_hint_y, content_w, scale(16, dpi)),
         startup_check: px(margin, startup_y, content_w, scale(20, dpi)),
         auto_update_check: px(margin, auto_update_y, content_w, scale(20, dpi)),
-        update_status: px(margin, update_row_y, scale(260, dpi), update_row_h),
+        update_status: px(
+            margin,
+            update_row_y,
+            scale(BASE_W - 2 * MARGIN - 178, dpi),
+            update_row_h,
+        ),
         download_btn: px(
             total_w - margin - scale(170, dpi),
             update_row_y - scale(2, dpi),
@@ -1021,14 +983,14 @@ fn applied_note(action: Action, sc: Option<Shortcut>) -> Option<String> {
 }
 
 fn refresh_update_status(h: &Hwnds) {
-    let state = update_state();
+    let state = update::state();
     unsafe {
         let _ = SetWindowTextW(
             h.update_status,
-            PCWSTR::from_raw(to_wide(&update_status_line(&state)).as_ptr()),
+            PCWSTR::from_raw(to_wide(&update::status_line(&state)).as_ptr()),
         );
     }
-    let show_download = matches!(state, UpdateState::Available { .. });
+    let show_download = matches!(state, update::State::Available { .. });
     unsafe {
         let _ = ShowWindow(
             h.download_btn,
@@ -1041,24 +1003,11 @@ fn refresh_update_status(h: &Hwnds) {
     }
 }
 
-/// Called by the update checker (once wired in) whenever its state
-/// changes, so an open Settings window reflects it without polling.
-// Not yet called from this branch: app.rs's tray item and notification
-// click (feature/owners-and-updates) are the real callers, wired in after
-// that branch merges.
-#[allow(dead_code)]
+/// Refreshes the update row of an open Settings window.
 pub fn on_update_state_changed() {
     if let Some(h) = HWNDS.with(|c| c.get()) {
         refresh_update_status(&h);
     }
-}
-
-/// Opens Settings (there is only one tab's worth of content in this
-/// native-controls window; the name matches the API the General-tab-aware
-/// caller expects).
-#[allow(dead_code)]
-pub fn open_general_tab() {
-    open();
 }
 
 fn populate_listview(h: &Hwnds, shortcuts: &crate::config::Shortcuts) {
@@ -1413,7 +1362,9 @@ fn do_save(h: &Hwnds) {
     let shortcuts = STAGED.with(|s| s.borrow().as_ref().map(|st| st.shortcuts.clone()));
     let Some(shortcuts) = shortcuts else { return };
 
-    let new_config = Config { sizes, shortcuts };
+    let mut new_config = app::current_config();
+    new_config.sizes = sizes;
+    new_config.shortcuts = shortcuts;
     let failed = app::apply_new_config(new_config);
 
     let checked = unsafe {
@@ -1510,17 +1461,13 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                                 None,
                             )
                         };
-                        update_set_auto(checked.0 != 0);
+                        update::set_auto(checked.0 != 0);
                     }
                     ID_CHECK_NOW => {
-                        update_check_now();
+                        update::check_now();
                         refresh_update_status(&h);
                     }
-                    ID_DOWNLOAD => {
-                        if let UpdateState::Available { url, .. } = update_state() {
-                            update_open_download(&url);
-                        }
-                    }
+                    ID_DOWNLOAD => update::open_download(),
                     _ => {}
                 }
             }

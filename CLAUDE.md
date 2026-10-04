@@ -21,3 +21,27 @@ A Rectangle-style keyboard window manager for Windows, in Rust.
   drop the borrow, then make the call.
 - No em or en dashes anywhere in `src/*.rs` (enforced by the pre-commit
   hook).
+- The takeover keyboard hook (`src/takeover.rs`) runs on the UI thread, so it
+  must stay fast and must not touch `app.rs`'s `STATE`: it keeps its own
+  `thread_local` state and only posts a message to the main window.
+- Pure modules (`config`, `layout`, `owners`, `shortcut`, `takeover`,
+  `theme`, `update`) are declared unconditionally in `main.rs`, with Win32
+  code behind `#[cfg(windows)]` inside them, because CI runs `cargo test` on
+  Linux without the `windows` crate.
+- Owner lookups (`src/owners.rs`) read hotkey fields only. Never read, log or
+  store other keys from those files (Twinkle Tray `udpKey`, tokens in the
+  Claude config).
+
+## Developer overrides
+
+- `WECTANGLE_THEME=light|dark` forces the Settings theme.
+- `WECTANGLE_UPDATE_URL` replaces the GitHub releases API URL for the update
+  check; plain `http://` is accepted only through it. Use it with a local
+  server. A second `wectangle.exe` does not start: it only opens Settings in
+  the running instance, so quit that one before trying a new build.
+
+## Releasing
+
+Bump `version` in `Cargo.toml`, tag `v<version>` and push the tag; the
+Release workflow publishes `wectangle.exe`, which the update check looks
+for.
