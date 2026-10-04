@@ -1,10 +1,12 @@
+use std::cell::Cell;
+
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{LIM_SMALL, LoadIconMetric};
 use windows::Win32::UI::Shell::{
     NIF_ICON, NIF_INFO, NIF_MESSAGE, NIF_SHOWTIP, NIF_TIP, NIIF_INFO, NIM_ADD, NIM_DELETE,
-    NIM_MODIFY, NIM_SETVERSION, NIN_SELECT, NOTIFYICON_VERSION_4, NOTIFYICONDATAW,
-    Shell_NotifyIconW,
+    NIM_MODIFY, NIM_SETVERSION, NIN_BALLOONUSERCLICK, NIN_SELECT, NOTIFYICON_VERSION_4,
+    NOTIFYICONDATAW, Shell_NotifyIconW,
 };
 use windows::core::{PCWSTR, w};
 
@@ -12,17 +14,24 @@ use windows::core::{PCWSTR, w};
 // NIN_KEYSELECT = (NIN_SELECT | 0x1).
 const NIN_KEYSELECT: u32 = NIN_SELECT | 1;
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, HICON, MF_CHECKED, MF_STRING, MF_UNCHECKED,
-    PostMessageW, SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    AppendMenuW, CreatePopupMenu, DestroyMenu, HICON, MF_CHECKED, MF_SEPARATOR, MF_STRING,
+    MF_UNCHECKED, PostMessageW, SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON,
     TrackPopupMenu, WM_CLOSE, WM_CONTEXTMENU, WM_NULL,
 };
 
-use crate::{app, settings, startup};
+use crate::{app, settings, startup, update};
 
 const TRAY_ICON_ID: u32 = 1;
 const ID_SETTINGS: u16 = 1001;
 const ID_STARTUP: u16 = 1002;
 const ID_QUIT: u16 = 1003;
+const ID_CHECK_UPDATES: u16 = 1004;
+
+thread_local! {
+    // Clicking any balloon sends NIN_BALLOONUSERCLICK, so only the update
+    // balloon, when it is the last one shown, may open the download.
+    static UPDATE_BALLOON: Cell<bool> = const { Cell::new(false) };
+}
 
 fn copy_to_buf<const N: usize>(buf: &mut [u16; N], text: &str) {
     let mut wide: Vec<u16> = text.encode_utf16().collect();
@@ -76,6 +85,16 @@ pub fn remove(hwnd: HWND) {
 }
 
 pub fn notify(hwnd: HWND, title: &str, message: &str) {
+    UPDATE_BALLOON.with(|b| b.set(false));
+    show_balloon(hwnd, title, message);
+}
+
+pub fn notify_update(hwnd: HWND, title: &str, message: &str) {
+    show_balloon(hwnd, title, message);
+    UPDATE_BALLOON.with(|b| b.set(true));
+}
+
+fn show_balloon(hwnd: HWND, title: &str, message: &str) {
     unsafe {
         let mut nid = base_nid(hwnd);
         nid.uFlags = NIF_INFO;
@@ -96,6 +115,11 @@ pub fn handle_callback(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) {
         e if e == NIN_SELECT || e == NIN_KEYSELECT => {
             settings::open();
         }
+        e if e == NIN_BALLOONUSERCLICK => {
+            if UPDATE_BALLOON.with(|b| b.replace(false)) {
+                update::open_download();
+            }
+        }
         e if e == WM_CONTEXTMENU => {
             let x = (wparam.0 as u16) as i16 as i32;
             let y = ((wparam.0 >> 16) as u16) as i16 as i32;
@@ -112,6 +136,13 @@ fn show_context_menu(hwnd: HWND, x: i32, y: i32) {
         };
 
         let _ = AppendMenuW(menu, MF_STRING, ID_SETTINGS as usize, w!("Settings..."));
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING,
+            ID_CHECK_UPDATES as usize,
+            w!("Check for updates..."),
+        );
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let startup_flags = if startup::is_enabled() {
             MF_STRING | MF_CHECKED
         } else {
@@ -123,6 +154,7 @@ fn show_context_menu(hwnd: HWND, x: i32, y: i32) {
             ID_STARTUP as usize,
             w!("Launch at startup"),
         );
+        let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, ID_QUIT as usize, w!("Quit Wectangle"));
 
         // TrackPopupMenu needs the window in the foreground, or the menu can
@@ -144,6 +176,11 @@ fn show_context_menu(hwnd: HWND, x: i32, y: i32) {
 
         match cmd.0 as u16 {
             ID_SETTINGS => settings::open(),
+            ID_CHECK_UPDATES => {
+                settings::open();
+                update::check_now();
+                settings::on_update_state_changed();
+            }
             ID_STARTUP => {
                 let _ = startup::toggle();
             }

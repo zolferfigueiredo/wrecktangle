@@ -5,9 +5,9 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, PostMessageW, PostQuitMessage,
-    RegisterClassExW, RegisterWindowMessageW, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_HOTKEY,
-    WM_SETTINGCHANGE, WNDCLASSEXW, WS_EX_TOOLWINDOW,
+    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, KillTimer, PostMessageW, PostQuitMessage,
+    RegisterClassExW, RegisterWindowMessageW, SetTimer, WINDOW_STYLE, WM_APP, WM_DESTROY,
+    WM_HOTKEY, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSEXW, WS_EX_TOOLWINDOW,
 };
 use windows::core::PCWSTR;
 use windows::core::w;
@@ -16,13 +16,19 @@ use crate::config::{self, Config};
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
 use crate::theme;
-use crate::{owners, takeover, tray, window_ops};
+use crate::{owners, takeover, tray, update, window_ops};
 
 pub const WINDOW_CLASS_NAME: PCWSTR = w!("WectangleMainWindow");
 pub const WM_APP_TRAY: u32 = WM_APP + 1;
 pub const WM_APP_OPEN_SETTINGS: u32 = WM_APP + 2;
 pub const WM_APP_THEME_CHANGED: u32 = WM_APP + 3;
 pub const WM_APP_TAKEOVER: u32 = WM_APP + 4;
+pub const WM_APP_UPDATE_DONE: u32 = WM_APP + 5;
+
+const TIMER_UPDATE_STARTUP: usize = 1;
+const TIMER_UPDATE_DAILY: usize = 2;
+const UPDATE_STARTUP_DELAY_MS: u32 = 30_000;
+const UPDATE_DAILY_INTERVAL_MS: u32 = 24 * 60 * 60 * 1000;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Claim {
@@ -38,6 +44,8 @@ struct State {
     claims: HashMap<Action, Claim>,
     taskbar_created: u32,
     admin_notice_shown: bool,
+    config_invalid: bool,
+    update_notified: Option<String>,
 }
 
 thread_local! {
@@ -93,6 +101,8 @@ pub fn init() -> windows::core::Result<HWND> {
                 claims: HashMap::new(),
                 taskbar_created,
                 admin_notice_shown: false,
+                config_invalid: source == config::Source::Invalid,
+                update_notified: None,
             });
         });
 
@@ -100,6 +110,18 @@ pub fn init() -> windows::core::Result<HWND> {
 
         let failed = register_all(hwnd);
         tray::add(hwnd)?;
+        SetTimer(
+            Some(hwnd),
+            TIMER_UPDATE_STARTUP,
+            UPDATE_STARTUP_DELAY_MS,
+            None,
+        );
+        SetTimer(
+            Some(hwnd),
+            TIMER_UPDATE_DAILY,
+            UPDATE_DAILY_INTERVAL_MS,
+            None,
+        );
 
         if source == config::Source::Invalid {
             tray::notify(
@@ -180,9 +202,46 @@ pub fn apply_new_config(new_config: Config) -> Vec<Action> {
     STATE.with(|s| {
         if let Some(state) = s.borrow_mut().as_mut() {
             state.config = new_config;
+            state.config_invalid = false;
         }
     });
     register_all(hwnd)
+}
+
+// Changes one setting without touching the hotkeys. While the config file on
+// disk is invalid it stays untouched until Settings saves, so a hand edit is
+// not overwritten behind the user's back.
+pub fn update_config(change: impl FnOnce(&mut Config)) {
+    let to_save = STATE.with(|s| {
+        let mut state = s.borrow_mut();
+        let state = state.as_mut()?;
+        change(&mut state.config);
+        (!state.config_invalid).then(|| state.config.clone())
+    });
+    if let Some(config) = to_save {
+        let _ = config::save(&config::config_path(), &config);
+    }
+}
+
+fn notify_update_available(hwnd: HWND) {
+    let update::State::Available { version, .. } = update::state() else {
+        return;
+    };
+    let already_told = STATE.with(|s| match s.borrow_mut().as_mut() {
+        Some(state) => {
+            let same = state.update_notified.as_deref() == Some(version.as_str());
+            state.update_notified = Some(version.clone());
+            same
+        }
+        None => true,
+    });
+    if !already_told {
+        tray::notify_update(
+            hwnd,
+            "Wectangle",
+            &format!("Wectangle {version} is available. Click to download."),
+        );
+    }
 }
 
 fn failed_message(failed: &[Action]) -> String {
@@ -334,6 +393,35 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             });
             if let Some(action) = action {
                 run_action(hwnd, action);
+            }
+            LRESULT(0)
+        }
+        WM_TIMER => {
+            match wparam.0 {
+                TIMER_UPDATE_STARTUP => {
+                    unsafe {
+                        let _ = KillTimer(Some(hwnd), TIMER_UPDATE_STARTUP);
+                    }
+                    let config = current_config();
+                    if config.check_updates
+                        && update::auto_check_due(config.last_update_check, update::now_unix())
+                    {
+                        update::check_auto();
+                    }
+                }
+                TIMER_UPDATE_DAILY if current_config().check_updates => update::check_auto(),
+                _ => {}
+            }
+            LRESULT(0)
+        }
+        WM_APP_UPDATE_DONE => {
+            let checked_at = lparam.0.max(0) as u64;
+            if checked_at > 0 {
+                update_config(|config| config.last_update_check = checked_at);
+            }
+            crate::settings::on_update_state_changed();
+            if wparam.0 != 0 {
+                notify_update_available(hwnd);
             }
             LRESULT(0)
         }

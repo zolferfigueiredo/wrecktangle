@@ -82,6 +82,8 @@ impl Shortcuts {
 pub struct Config {
     pub sizes: Vec<String>,
     pub shortcuts: Shortcuts,
+    pub check_updates: bool,
+    pub last_update_check: u64,
 }
 
 impl Config {
@@ -103,6 +105,10 @@ struct ConfigFile {
     sizes: Option<Vec<String>>,
     #[serde(default)]
     shortcuts: Option<ShortcutsFile>,
+    #[serde(default)]
+    check_updates: Option<bool>,
+    #[serde(default)]
+    last_update_check: Option<u64>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -182,7 +188,12 @@ fn resolve(file: ConfigFile) -> Option<Config> {
         previous_display: resolve_shortcut(sf.previous_display, "Ctrl+Alt+Win+Left")?,
     };
 
-    Some(Config { sizes, shortcuts })
+    Some(Config {
+        sizes,
+        shortcuts,
+        check_updates: file.check_updates.unwrap_or(true),
+        last_update_check: file.last_update_check.unwrap_or(0),
+    })
 }
 
 // A field absent from otherwise-valid JSON falls back to its default; a
@@ -222,6 +233,8 @@ pub fn to_json_string(config: &Config) -> String {
             next_display: Some(format_opt(&config.shortcuts.next_display)),
             previous_display: Some(format_opt(&config.shortcuts.previous_display)),
         }),
+        check_updates: Some(config.check_updates),
+        last_update_check: Some(config.last_update_check),
     };
     serde_json::to_string_pretty(&file).expect("config always serializes")
 }
@@ -317,6 +330,42 @@ mod tests {
             config.shortcuts.previous_display,
             shortcut::parse("Ctrl+Alt+Win+Left").ok()
         );
+    }
+
+    #[test]
+    fn update_fields_default_to_checking_with_no_previous_check() {
+        let config = Config::defaults();
+        assert!(config.check_updates);
+        assert_eq!(config.last_update_check, 0);
+    }
+
+    #[test]
+    fn config_without_update_fields_still_loads() {
+        let (config, source) = load_from_str(r#"{"sizes": ["1/2"], "shortcuts": {"left": ""}}"#);
+        assert_eq!(source, Source::Loaded);
+        assert!(config.check_updates);
+        assert_eq!(config.last_update_check, 0);
+        assert_eq!(config.shortcuts.left, None);
+    }
+
+    #[test]
+    fn update_fields_are_read_and_round_trip() {
+        let (config, source) =
+            load_from_str(r#"{"check_updates": false, "last_update_check": 1760000000}"#);
+        assert_eq!(source, Source::Loaded);
+        assert!(!config.check_updates);
+        assert_eq!(config.last_update_check, 1_760_000_000);
+
+        let (reloaded, source) = load_from_str(&to_json_string(&config));
+        assert_eq!(source, Source::Loaded);
+        assert_eq!(reloaded, config);
+    }
+
+    #[test]
+    fn wrongly_typed_update_field_is_invalid() {
+        let (config, source) = load_from_str(r#"{"check_updates": "yes"}"#);
+        assert_eq!(source, Source::Invalid);
+        assert_eq!(config, Config::defaults());
     }
 
     #[test]
