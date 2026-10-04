@@ -53,7 +53,7 @@ const WM_APP_RECORDER_KEY: u32 = WM_APP + 30;
 const DUMMY_VK: u16 = 0xFF;
 const DUMMY_KEY_MAGIC: usize = 0x5745_4354;
 
-const BASE_W: i32 = 480;
+const BASE_W: i32 = 540;
 const BASE_H: i32 = 430;
 const MARGIN: i32 = 12;
 const LIST_Y: i32 = 12;
@@ -331,9 +331,12 @@ fn create_controls(
             Some(LPARAM(LVS_EX_FULLROWSELECT as isize)),
         );
         let content_w = r.listview.right - r.listview.left;
-        insert_column(listview, 0, "Action", (content_w as f64 * 0.42) as i32);
-        insert_column(listview, 1, "Shortcut", (content_w as f64 * 0.29) as i32);
-        insert_column(listview, 2, "Status", (content_w as f64 * 0.29) as i32);
+        let action_w = scale(185, dpi);
+        let shortcut_w = scale(125, dpi);
+        let status_w = (content_w - action_w - shortcut_w).max(scale(80, dpi));
+        insert_column(listview, 0, "Action", action_w);
+        insert_column(listview, 1, "Shortcut", shortcut_w);
+        insert_column(listview, 2, "Status", status_w);
 
         let change_btn =
             create_button(main, hinstance, "Change...", ID_CHANGE, r.change_btn, false)?;
