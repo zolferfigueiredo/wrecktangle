@@ -20,9 +20,7 @@ use windows::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForWindow, SystemParametersInfoForDpi,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetFocus, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBD_EVENT_FLAGS, KEYBDINPUT,
-    KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_ESCAPE, VK_LCONTROL, VK_LMENU,
-    VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
+    GetAsyncKeyState, GetFocus, VK_CONTROL, VK_ESCAPE, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
 };
 use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
@@ -41,11 +39,10 @@ use crate::config::{self, Config};
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
 use crate::theme;
-use crate::{app, startup};
+use crate::{app, startup, takeover};
 
-// Stand-ins for the API the feature/owners-and-updates branch is building.
-// Replace each with the real crate::update / app::shortcut_note call once
-// that branch merges, and delete this block.
+// Stand-ins for the crate::update API; replaced by the real calls when the
+// update checker lands.
 #[derive(Clone)]
 enum UpdateState {
     #[allow(dead_code)]
@@ -73,9 +70,6 @@ fn update_auto_enabled() -> bool {
 fn update_set_auto(_enabled: bool) {}
 fn update_current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
-}
-fn shortcut_note(_action: Action) -> Option<String> {
-    None
 }
 
 fn update_status_line(state: &UpdateState) -> String {
@@ -108,9 +102,6 @@ const ID_TEST_HOTKEY: i32 = 999;
 const WM_APP_RECORDER_KEY: u32 = WM_APP + 30;
 
 const LISTVIEW_SUBCLASS_ID: usize = 1;
-
-const DUMMY_VK: u16 = 0xFF;
-const DUMMY_KEY_MAGIC: usize = 0x5745_4354;
 
 const MOD_BIT_CTRL: isize = 0x1;
 const MOD_BIT_ALT: isize = 0x2;
@@ -1005,9 +996,9 @@ fn selected_row(listview: HWND) -> Option<usize> {
     }
 }
 
-fn status_text(action: Action, sc: Option<Shortcut>, in_use: bool) -> String {
-    if in_use {
-        return shortcut_note(action).unwrap_or_else(|| "In use by another app".to_string());
+fn status_text(sc: Option<Shortcut>, note: Option<String>) -> String {
+    if let Some(note) = note {
+        return note;
     }
     match sc.and_then(|s| shortcut::altgr_char(&s)) {
         Some(ch) => format!(
@@ -1015,6 +1006,17 @@ fn status_text(action: Action, sc: Option<Shortcut>, in_use: bool) -> String {
             shortcut::key_name(&sc.unwrap())
         ),
         None => String::new(),
+    }
+}
+
+// The takeover note belongs to the applied shortcut, so it only shows while
+// the staged shortcut is still the applied one.
+fn applied_note(action: Action, sc: Option<Shortcut>) -> Option<String> {
+    let applied = app::current_config().shortcuts.get(action);
+    if sc.is_some() && sc == applied {
+        app::shortcut_note(action)
+    } else {
+        None
     }
 }
 
@@ -1060,7 +1062,6 @@ pub fn open_general_tab() {
 }
 
 fn populate_listview(h: &Hwnds, shortcuts: &crate::config::Shortcuts) {
-    let failed = app::registration_failed();
     for (row, action) in Action::ALL.iter().enumerate() {
         insert_row(h.listview, row as i32, action.label());
         let sc = shortcuts.get(*action);
@@ -1074,7 +1075,7 @@ fn populate_listview(h: &Hwnds, shortcuts: &crate::config::Shortcuts) {
             h.listview,
             row as i32,
             2,
-            &status_text(*action, sc, failed.contains(action)),
+            &status_text(sc, applied_note(*action, sc)),
         );
     }
 }
@@ -1096,7 +1097,7 @@ fn refresh_row(h: &Hwnds, row: usize) {
         h.listview,
         row as i32,
         2,
-        &status_text(Action::ALL[row], sc, false),
+        &status_text(sc, applied_note(Action::ALL[row], sc)),
     );
 }
 
@@ -1162,53 +1163,6 @@ fn remove_hook() {
     HOOK_PHASE.with(|p| p.set(HookPhase::Idle));
 }
 
-fn is_modifier_vk(vk: u16) -> bool {
-    matches!(
-        VIRTUAL_KEY(vk),
-        VK_CONTROL
-            | VK_MENU
-            | VK_SHIFT
-            | VK_LWIN
-            | VK_RWIN
-            | VK_LCONTROL
-            | VK_RCONTROL
-            | VK_LMENU
-            | VK_RMENU
-            | VK_LSHIFT
-            | VK_RSHIFT
-    )
-}
-
-fn inject_dummy_key() {
-    let down = INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(DUMMY_VK),
-                wScan: 0,
-                dwFlags: KEYBD_EVENT_FLAGS(0),
-                time: 0,
-                dwExtraInfo: DUMMY_KEY_MAGIC,
-            },
-        },
-    };
-    let up = INPUT {
-        r#type: INPUT_KEYBOARD,
-        Anonymous: INPUT_0 {
-            ki: KEYBDINPUT {
-                wVk: VIRTUAL_KEY(DUMMY_VK),
-                wScan: 0,
-                dwFlags: KEYEVENTF_KEYUP,
-                time: 0,
-                dwExtraInfo: DUMMY_KEY_MAGIC,
-            },
-        },
-    };
-    unsafe {
-        SendInput(&[down, up], std::mem::size_of::<INPUT>() as i32);
-    }
-}
-
 // Reads modifier state here, synchronously at the key-down, and packs it
 // into the posted message. Reading it later in the window procedure would
 // race a fast release of the modifiers (for example a SendInput sequence
@@ -1220,9 +1174,10 @@ extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
         let is_keydown = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
         let is_keyup = msg == WM_KEYUP || msg == WM_SYSKEYUP;
         let vk = kb.vkCode as u16;
-        let is_our_dummy = kb.flags.contains(LLKHF_INJECTED) && kb.dwExtraInfo == DUMMY_KEY_MAGIC;
+        let is_our_dummy =
+            kb.flags.contains(LLKHF_INJECTED) && kb.dwExtraInfo == takeover::DUMMY_KEY_MAGIC;
 
-        if !is_our_dummy && !is_modifier_vk(vk) {
+        if !is_our_dummy && !takeover::is_modifier_vk(vk) {
             let phase = HOOK_PHASE.with(|p| p.get());
             match phase {
                 HookPhase::Idle => {}
@@ -1293,7 +1248,7 @@ fn on_recorder_key(h: &Hwnds, vk: u16, mods: isize) {
     let win = mods & MOD_BIT_WIN != 0;
 
     if win {
-        inject_dummy_key();
+        takeover::inject_dummy_key();
     }
 
     if !(ctrl || alt || win) {
@@ -1333,14 +1288,14 @@ fn on_recorder_key(h: &Hwnds, vk: u16, mods: isize) {
         return;
     }
 
-    let in_use = !test_register(h.main, candidate);
+    let note = (!test_register(h.main, candidate)).then(|| app::candidate_note(&candidate));
     stage_shortcut(row, Some(candidate));
     stop_recording();
     set_row_text(
         h,
         row,
         &shortcut::format(&candidate),
-        &status_text(Action::ALL[row], Some(candidate), in_use),
+        &status_text(Some(candidate), note),
     );
 }
 
@@ -1475,9 +1430,16 @@ fn do_save(h: &Hwnds) {
     }
 
     if !failed.is_empty() {
-        for (row, action) in Action::ALL.iter().enumerate() {
-            if failed.contains(action) {
-                set_item_text(h.listview, row as i32, 2, "In use by another app");
+        let shortcuts = STAGED.with(|s| s.borrow().as_ref().map(|st| st.shortcuts.clone()));
+        if let Some(shortcuts) = shortcuts {
+            for (row, action) in Action::ALL.iter().enumerate() {
+                let sc = shortcuts.get(*action);
+                set_item_text(
+                    h.listview,
+                    row as i32,
+                    2,
+                    &status_text(sc, applied_note(*action, sc)),
+                );
             }
         }
         return;
