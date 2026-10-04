@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
-      - run: rustup target add x86_64-pc-windows-gnu
+      - run: rustup toolchain install && rustup target add x86_64-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo fmt --check
       - run: cargo test
