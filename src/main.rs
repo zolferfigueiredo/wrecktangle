@@ -28,8 +28,7 @@ use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, LPARAM, WPAR
 use windows::Win32::System::Threading::CreateMutexW;
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
-    AllowSetForegroundWindow, DispatchMessageW, FindWindowW, GetMessageW, GetWindowThreadProcessId,
-    IsDialogMessageW, MSG, PostMessageW, TranslateMessage,
+    AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId, PostMessageW,
 };
 #[cfg(windows)]
 use windows::core::w;
@@ -61,17 +60,9 @@ fn main() {
             return;
         };
 
-        let mut msg = MSG::default();
-        while GetMessageW(&mut msg, None, 0, 0).into() {
-            let handled = match settings::hwnd() {
-                Some(settings_hwnd) => IsDialogMessageW(settings_hwnd, &msg).as_bool(),
-                None => false,
-            };
-            if !handled {
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            }
-        }
+        // Winit's loop dispatches every window on this thread, including the
+        // hidden main window that owns the hotkeys, tray icon and hooks.
+        let _ = slint::run_event_loop_until_quit();
 
         if let Ok(handle) = mutex {
             let _ = CloseHandle(handle);

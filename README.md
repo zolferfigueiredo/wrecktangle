@@ -15,10 +15,11 @@ set of sizes.
 - Shortcuts that Windows or another app already owns, such as
   Alt+Win+Left/Right, are taken over instead of refused (see Shortcut
   takeover).
-- A tray icon with a Settings window for changing any shortcut, the size
-  cycle, and whether Wectangle launches at startup. Settings also names the
-  app that a taken-over shortcut overrides, for example "Overrides PowerToys
-  Peek".
+- A tray icon with a Windows 11 style Settings window (Slint, Fluent style,
+  following the system light or dark theme) for changing any shortcut, the
+  size cycle, and whether Wectangle launches at startup. Changes apply as you
+  make them. Settings also names the app that a taken-over shortcut
+  overrides, for example "Overrides PowerToys Peek".
 - Update checks against GitHub Releases, on demand or once a day (see
   Updates).
 - No admin rights required, unless the window you want to move is itself
@@ -94,7 +95,7 @@ cycle, the shortcut assigned to each action, `check_updates` (default `true`)
 and `last_update_check` (a Unix time in seconds, maintained by Wectangle).
 Edit it through the Settings window; a hand-edited file that fails to parse
 falls back to defaults with a notification, and is left untouched until you
-press Save.
+change something in Settings.
 
 ## Shortcut takeover
 

@@ -1,39 +1,20 @@
 use std::cell::{Cell, RefCell};
+use std::time::Duration;
 
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
-use windows::Win32::Graphics::Gdi::{
-    COLOR_BTNFACE, CreateFontIndirectW, DeleteObject, FillRect, GetSysColorBrush, LOGFONTW,
-    RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RedrawWindow, SetBkMode, SetTextColor,
-    TRANSPARENT,
-};
+use slint::{CloseRequestResponse, ComponentHandle, Model, ModelRc, SharedString, Timer, VecModel};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows::Win32::UI::Controls::{
-    CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_NOTIFYITEMDRAW, ICC_LISTVIEW_CLASSES,
-    INITCOMMONCONTROLSEX, InitCommonControlsEx, LIM_LARGE, LIM_SMALL, LVCF_SUBITEM, LVCF_TEXT,
-    LVCF_WIDTH, LVCFMT_LEFT, LVCOLUMNW, LVIF_TEXT, LVITEMW, LVM_APPROXIMATEVIEWRECT,
-    LVM_GETNEXTITEM, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH,
-    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMTEXTW, LVNI_SELECTED, LVS_EX_FULLROWSELECT,
-    LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, LVSCW_AUTOSIZE_USEHEADER, LoadIconMetric,
-    NM_CUSTOMDRAW, NM_DBLCLK, NMCUSTOMDRAW, NMHDR, NMITEMACTIVATE, WC_LISTVIEW,
-};
-use windows::Win32::UI::HiDpi::{
-    AdjustWindowRectExForDpi, GetDpiForWindow, SystemParametersInfoForDpi,
-};
+use windows::Win32::System::Threading::GetCurrentProcessId;
+use windows::Win32::UI::Controls::{LIM_LARGE, LIM_SMALL, LoadIconMetric};
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, GetFocus, VK_CONTROL, VK_ESCAPE, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
+    GetAsyncKeyState, VK_CONTROL, VK_ESCAPE, VK_LWIN, VK_MENU, VK_RWIN, VK_SHIFT,
 };
-use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL, GetClientRect,
-    GetParent, GetWindowTextW, HMENU, ICON_BIG, ICON_SMALL, IDCANCEL, IDOK, KBDLLHOOKSTRUCT,
-    LLKHF_INJECTED, PostMessageW, RegisterClassExW, SW_SHOW, SWP_NOMOVE, SWP_NOZORDER,
-    SendMessageW, SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE,
-    WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC,
-    WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_KEYDOWN, WM_KEYUP, WM_NOTIFY, WM_SETFONT,
-    WM_SETICON, WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSEXW, WS_CAPTION, WS_CHILD, WS_EX_CLIENTEDGE,
-    WS_GROUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+    CallNextHookEx, HHOOK, ICON_BIG, ICON_SMALL, KBDLLHOOKSTRUCT, LLKHF_INJECTED, PostMessageW,
+    SendMessageW, SetForegroundWindow, SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL,
+    WM_KEYDOWN, WM_KEYUP, WM_SETICON, WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
-use windows::core::{Error, HRESULT, PCWSTR, PWSTR, Result, w};
+use windows::core::{PCWSTR, w};
 
 use crate::config::{self, Config};
 use crate::layout::Action;
@@ -41,62 +22,17 @@ use crate::shortcut::{self, Shortcut};
 use crate::theme;
 use crate::{app, startup, takeover, update};
 
-const WINDOW_CLASS_NAME: PCWSTR = w!("WectangleSettingsWindow");
+slint::include_modules!();
 
-const ID_LISTVIEW: i32 = 101;
-const ID_CHANGE: i32 = 102;
-const ID_CLEAR: i32 = 103;
-const ID_RESTORE: i32 = 104;
-const ID_SIZES_EDIT: i32 = 105;
-const ID_STARTUP_CHECK: i32 = 106;
-const ID_AUTO_UPDATE_CHECK: i32 = 107;
-const ID_CHECK_NOW: i32 = 108;
-const ID_DOWNLOAD: i32 = 109;
-const ID_SAVE: i32 = IDOK.0;
-const ID_CANCEL: i32 = IDCANCEL.0;
-const ID_TEST_HOTKEY: i32 = 999;
-
-const WM_APP_RECORDER_KEY: u32 = WM_APP + 30;
-
-const LISTVIEW_SUBCLASS_ID: usize = 1;
+const WINDOW_TITLE: PCWSTR = w!("Wectangle Settings");
 
 const MOD_BIT_CTRL: isize = 0x1;
 const MOD_BIT_ALT: isize = 0x2;
 const MOD_BIT_SHIFT: isize = 0x4;
 const MOD_BIT_WIN: isize = 0x8;
 
-const BASE_W: i32 = 540;
-const MARGIN: i32 = 12;
-const LIST_Y: i32 = 12;
-// WS_CAPTION | WS_SYSMENU; the `BitOr` impl on WINDOW_STYLE is not a const
-// fn, so the bits are combined by hand to make this a const.
-const WINDOW_STYLE_BITS: WINDOW_STYLE = WINDOW_STYLE(WS_CAPTION.0 | WS_SYSMENU.0);
-
-#[derive(Clone, Copy)]
-struct Hwnds {
-    main: HWND,
-    listview: HWND,
-    change_btn: HWND,
-    clear_btn: HWND,
-    restore_btn: HWND,
-    size_label: HWND,
-    sizes_edit: HWND,
-    hint_label: HWND,
-    startup_check: HWND,
-    auto_update_check: HWND,
-    check_now_btn: HWND,
-    update_status: HWND,
-    download_btn: HWND,
-    save_btn: HWND,
-    cancel_btn: HWND,
-    font: windows::Win32::Graphics::Gdi::HFONT,
-    bg_brush: windows::Win32::Graphics::Gdi::HBRUSH,
-}
-
-struct Staged {
-    shortcuts: crate::config::Shortcuts,
-    recording_row: Option<usize>,
-}
+const RAISE_RETRY_MS: u64 = 25;
+const RAISE_MAX_ATTEMPTS: u32 = 40;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HookPhase {
@@ -106,148 +42,166 @@ enum HookPhase {
 }
 
 thread_local! {
-    static HWNDS: Cell<Option<Hwnds>> = const { Cell::new(None) };
-    static STAGED: RefCell<Option<Staged>> = const { RefCell::new(None) };
-    static HOOK: Cell<Option<windows::Win32::UI::WindowsAndMessaging::HHOOK>> = const { Cell::new(None) };
+    static WINDOW: RefCell<Option<SettingsWindow>> = const { RefCell::new(None) };
+    static RECORDING: Cell<Option<usize>> = const { Cell::new(None) };
+    static HOOK: Cell<Option<HHOOK>> = const { Cell::new(None) };
     static HOOK_PHASE: Cell<HookPhase> = const { Cell::new(HookPhase::Idle) };
-    static CLASS_REGISTERED: Cell<bool> = const { Cell::new(false) };
-    static HEADER_TEXT: Cell<Option<COLORREF>> = const { Cell::new(None) };
+    static HOOK_TARGET: Cell<Option<HWND>> = const { Cell::new(None) };
+}
+
+fn window() -> Option<SettingsWindow> {
+    WINDOW.with(|w| w.borrow().as_ref().map(|ui| ui.clone_strong()))
 }
 
 pub fn open() {
-    if let Some(h) = HWNDS.with(|c| c.get()) {
-        unsafe {
-            let _ = SetForegroundWindow(h.main);
+    let ui = match window() {
+        Some(ui) => ui,
+        None => {
+            let Ok(ui) = create() else { return };
+            WINDOW.with(|w| *w.borrow_mut() = Some(ui.clone_strong()));
+            ui
         }
-        return;
+    };
+    if !ui.window().is_visible() {
+        refresh_all(&ui);
     }
-    if let Err(_e) = create_window() {
-        // Nothing sensible to show if the settings window itself cannot be
-        // created; the tray icon and hotkeys keep working regardless.
+    let _ = ui.show();
+    raise(0);
+}
+
+fn create() -> Result<SettingsWindow, slint::PlatformError> {
+    let ui = SettingsWindow::new()?;
+    ui.set_rows(ModelRc::new(VecModel::from(vec![
+        ShortcutRow::default();
+        Action::ALL.len()
+    ])));
+    ui.set_theme_override(match theme::override_mode() {
+        None => 0,
+        Some(theme::Mode::Light) => 1,
+        Some(theme::Mode::Dark) => 2,
+    });
+
+    ui.on_record(|index| start_recording(index as usize));
+    ui.on_cancel_recording(cancel_recording);
+    ui.on_clear(|index| {
+        let mut config = app::current_config();
+        set_shortcut_field(&mut config.shortcuts, Action::ALL[index as usize], None);
+        commit(config);
+    });
+    ui.on_restore_defaults(|| {
+        let mut config = app::current_config();
+        config.shortcuts = Config::defaults().shortcuts;
+        commit(config);
+    });
+    ui.on_apply_sizes(|text| apply_sizes(&text).into());
+    ui.on_set_startup(set_startup);
+    ui.on_set_auto_update(update::set_auto);
+    ui.on_check_now(|| {
+        update::check_now();
+        on_update_state_changed();
+    });
+    ui.on_download(update::open_download);
+    ui.window().on_close_requested(|| {
+        cancel_recording();
+        CloseRequestResponse::HideWindow
+    });
+    Ok(ui)
+}
+
+fn refresh_all(ui: &SettingsWindow) {
+    let config = app::current_config();
+    ui.set_sizes_text(config.sizes.join(", ").into());
+    ui.set_sizes_error(SharedString::new());
+    ui.set_startup_enabled(startup::is_enabled());
+    ui.set_auto_update(update::auto_enabled());
+    ui.set_version_label(format!("Wectangle {}", update::current_version()).into());
+    show_update_state(ui);
+    refresh_rows(ui);
+}
+
+fn show_update_state(ui: &SettingsWindow) {
+    let state = update::state();
+    ui.set_update_status(update::status_line(&state).into());
+    ui.set_update_available(matches!(state, update::State::Available { .. }));
+    ui.set_update_busy(matches!(state, update::State::Checking));
+}
+
+/// Refreshes the update row of an open Settings window.
+pub fn on_update_state_changed() {
+    if let Some(ui) = window() {
+        show_update_state(&ui);
     }
 }
 
-pub fn hwnd() -> Option<HWND> {
-    HWNDS.with(|c| c.get()).map(|h| h.main)
+fn shortcut_row(action: Action, hint: Option<&str>) -> ShortcutRow {
+    let sc = app::current_config().shortcuts.get(action);
+    let (note, warn) = match (app::shortcut_note(action), sc) {
+        (Some(note), _) => (note, false),
+        (None, Some(sc)) => match shortcut::altgr_char(&sc) {
+            Some(ch) => (
+                format!(
+                    "Also blocks typing {ch} (AltGr+{})",
+                    shortcut::key_name(&sc)
+                ),
+                true,
+            ),
+            None => (String::new(), false),
+        },
+        (None, None) => (String::new(), false),
+    };
+    let caps: Vec<SharedString> = sc
+        .map(|sc| shortcut::key_caps(&sc))
+        .unwrap_or_default()
+        .into_iter()
+        .map(SharedString::from)
+        .collect();
+    ShortcutRow {
+        keys: ModelRc::new(VecModel::from(caps)),
+        note: note.into(),
+        warn,
+        recording: hint.is_some(),
+        hint: hint.unwrap_or_default().into(),
+    }
 }
 
-fn create_window() -> Result<()> {
-    unsafe {
-        let hinstance = GetModuleHandleW(None)?;
+fn refresh_rows(ui: &SettingsWindow) {
+    let model = ui.get_rows();
+    for (index, action) in Action::ALL.iter().enumerate() {
+        model.set_row_data(index, shortcut_row(*action, None));
+    }
+}
 
-        if !CLASS_REGISTERED.with(|c| c.get()) {
-            let _ = InitCommonControlsEx(&INITCOMMONCONTROLSEX {
-                dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
-                dwICC: ICC_LISTVIEW_CLASSES,
-            });
+fn show_row(ui: &SettingsWindow, index: usize, hint: Option<&str>) {
+    ui.get_rows()
+        .set_row_data(index, shortcut_row(Action::ALL[index], hint));
+}
 
-            let wc = WNDCLASSEXW {
-                cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-                lpfnWndProc: Some(wndproc),
-                hInstance: hinstance.into(),
-                lpszClassName: WINDOW_CLASS_NAME,
-                hbrBackground: GetSysColorBrush(COLOR_BTNFACE),
-                ..Default::default()
-            };
-            if RegisterClassExW(&wc) == 0 {
-                let code = windows::Win32::Foundation::GetLastError().0;
-                return Err(Error::from_hresult(HRESULT::from_win32(code)));
+// Slint creates the native window once the event loop is back in control, so
+// the handle may not exist yet right after show().
+fn raise(attempt: u32) {
+    match find_window() {
+        Some(hwnd) => {
+            set_window_icons(hwnd);
+            unsafe {
+                let _ = SetForegroundWindow(hwnd);
             }
-            CLASS_REGISTERED.with(|c| c.set(true));
         }
-
-        // A placeholder size: created before the real row height (which
-        // depends on the font) can be measured. Corrected below once the
-        // ListView exists, by measuring and resizing to fit.
-        let dpi_guess = 96u32;
-        let mut rect = RECT {
-            left: 0,
-            top: 0,
-            right: BASE_W,
-            bottom: 420,
-        };
-        let _ = AdjustWindowRectExForDpi(
-            &mut rect,
-            WINDOW_STYLE_BITS,
-            false,
-            WINDOW_EX_STYLE(0),
-            dpi_guess,
-        );
-
-        let main = CreateWindowExW(
-            WINDOW_EX_STYLE(0),
-            WINDOW_CLASS_NAME,
-            w!("Wectangle Settings"),
-            WINDOW_STYLE_BITS,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            rect.right - rect.left,
-            rect.bottom - rect.top,
-            None,
-            None,
-            Some(hinstance.into()),
-            None,
-        )?;
-
-        theme::apply_title_bar(main, theme::current_mode() == theme::Mode::Dark);
-
-        let dpi = GetDpiForWindow(main).max(1);
-        let font = make_font(dpi);
-        let placeholder_list_h = scale(200, dpi);
-        let hwnds = create_controls(main, font, dpi, placeholder_list_h)?;
-        HWNDS.with(|c| c.set(Some(hwnds)));
-        let _ = SetWindowSubclass(
-            hwnds.listview,
-            Some(listview_subclass),
-            LISTVIEW_SUBCLASS_ID,
-            0,
-        );
-
-        fit_window_to_list(&hwnds, dpi, None);
-
-        let config = app::current_config();
-        STAGED.with(|s| {
-            *s.borrow_mut() = Some(Staged {
-                shortcuts: config.shortcuts.clone(),
-                recording_row: None,
+        None if attempt < RAISE_MAX_ATTEMPTS => {
+            Timer::single_shot(Duration::from_millis(RAISE_RETRY_MS), move || {
+                raise(attempt + 1)
             });
-        });
+        }
+        None => {}
+    }
+}
 
-        populate_listview(&hwnds, &config.shortcuts);
-        let sizes_text = config.sizes.join(", ");
-        let _ = SetWindowTextW(
-            hwnds.sizes_edit,
-            PCWSTR::from_raw(to_wide(&sizes_text).as_ptr()),
-        );
-        let checked = if startup::is_enabled() {
-            1usize
-        } else {
-            0usize
-        };
-        SendMessageW(
-            hwnds.startup_check,
-            windows::Win32::UI::WindowsAndMessaging::BM_SETCHECK,
-            Some(WPARAM(checked)),
-            Some(LPARAM(0)),
-        );
-        let auto_update_checked = if update::auto_enabled() {
-            1usize
-        } else {
-            0usize
-        };
-        SendMessageW(
-            hwnds.auto_update_check,
-            windows::Win32::UI::WindowsAndMessaging::BM_SETCHECK,
-            Some(WPARAM(auto_update_checked)),
-            Some(LPARAM(0)),
-        );
-        refresh_update_status(&hwnds);
-        apply_dark_mode(&hwnds);
-
-        set_window_icons(main);
-        let _ = ShowWindow(main, SW_SHOW);
-        let _ = SetForegroundWindow(main);
-        Ok(())
+fn find_window() -> Option<HWND> {
+    use windows::Win32::UI::WindowsAndMessaging::{FindWindowW, GetWindowThreadProcessId};
+    unsafe {
+        let hwnd = FindWindowW(PCWSTR::null(), WINDOW_TITLE).ok()?;
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        (pid == GetCurrentProcessId()).then_some(hwnd)
     }
 }
 
@@ -277,823 +231,78 @@ fn set_window_icons(hwnd: HWND) {
     }
 }
 
-// Dark/light theming for the standard controls: SetWindowTheme flips the
-// ListView, buttons and checkboxes (and the ListView's own scrollbars) to
-// the dark visual style; the ListView's header is a separate child window
-// and needs its own theme name, plus its text color from listview_subclass.
-// Re-run on every WM_APP_THEME_CHANGED so a live theme switch is picked up
-// without reopening the window.
-fn apply_dark_mode(h: &Hwnds) {
-    let dark = theme::current_mode() == theme::Mode::Dark;
-    let sub_app = if dark {
-        w!("DarkMode_Explorer")
-    } else {
-        w!("")
+fn apply_sizes(text: &str) -> String {
+    let sizes = match config::parse_size_list(text) {
+        Ok(sizes) => sizes,
+        Err(message) => return message.to_string(),
     };
-    unsafe {
-        for ctl in [
-            h.listview,
-            h.change_btn,
-            h.clear_btn,
-            h.restore_btn,
-            h.startup_check,
-            h.auto_update_check,
-            h.check_now_btn,
-            h.download_btn,
-            h.save_btn,
-            h.cancel_btn,
-        ] {
-            let _ = windows::Win32::UI::Controls::SetWindowTheme(ctl, sub_app, None);
-        }
-        let header = SendMessageW(
-            h.listview,
-            windows::Win32::UI::Controls::LVM_GETHEADER,
-            None,
-            None,
-        );
-        let header_hwnd = HWND(header.0 as *mut core::ffi::c_void);
-        if !header_hwnd.is_invalid() {
-            let header_sub_app = if dark {
-                w!("DarkMode_ItemsView")
-            } else {
-                w!("")
-            };
-            let _ = windows::Win32::UI::Controls::SetWindowTheme(header_hwnd, header_sub_app, None);
-        }
+    let mut config = app::current_config();
+    if config.sizes != sizes {
+        config.sizes = sizes;
+        commit(config);
+    }
+    String::new()
+}
 
-        let palette = theme::themed_palette(theme::current_mode());
-        let bg = colorref(palette.bg);
-        let text = colorref(palette.text);
-        HEADER_TEXT.with(|c| c.set(dark.then_some(text)));
-        SendMessageW(
-            h.listview,
-            windows::Win32::UI::Controls::LVM_SETBKCOLOR,
-            None,
-            Some(LPARAM(bg.0 as isize)),
-        );
-        SendMessageW(
-            h.listview,
-            windows::Win32::UI::Controls::LVM_SETTEXTBKCOLOR,
-            None,
-            Some(LPARAM(bg.0 as isize)),
-        );
-        SendMessageW(
-            h.listview,
-            windows::Win32::UI::Controls::LVM_SETTEXTCOLOR,
-            None,
-            Some(LPARAM(text.0 as isize)),
-        );
+fn set_startup(enable: bool) {
+    if enable != startup::is_enabled() {
+        let _ = startup::set_enabled(enable);
+    }
+    if let Some(ui) = window() {
+        ui.set_startup_enabled(startup::is_enabled());
     }
 }
 
-// The header is a child of the ListView, so its NM_CUSTOMDRAW arrives here
-// rather than at the main window.
-unsafe extern "system" fn listview_subclass(
-    hwnd: HWND,
-    msg: u32,
-    wparam: WPARAM,
-    lparam: LPARAM,
-    _id: usize,
-    _data: usize,
-) -> LRESULT {
-    if msg == WM_NOTIFY
-        && let Some(text) = HEADER_TEXT.with(|c| c.get())
+// Applies and saves right away. A recording in progress ends first, because
+// applying re-registers the hotkeys that recording had suspended.
+fn commit(config: Config) {
+    finish_recording(false);
+    app::apply_new_config(config);
+    if let Some(ui) = window() {
+        refresh_rows(&ui);
+    }
+}
+
+fn start_recording(index: usize) {
+    let Some(ui) = window() else { return };
+    let previous = RECORDING.with(|r| r.replace(Some(index)));
+    match previous {
+        Some(previous) if previous == index => return,
+        Some(previous) => show_row(&ui, previous, None),
+        None => {
+            app::suspend_hotkeys();
+            HOOK_PHASE.with(|p| p.set(HookPhase::Recording));
+            install_hook();
+        }
+    }
+    show_row(&ui, index, Some(""));
+}
+
+fn cancel_recording() {
+    if finish_recording(true).is_some()
+        && let Some(ui) = window()
     {
-        let nmhdr = unsafe { &*(lparam.0 as *const NMHDR) };
-        if nmhdr.code == NM_CUSTOMDRAW && unsafe { GetParent(nmhdr.hwndFrom) }.ok() == Some(hwnd) {
-            let draw = unsafe { &*(lparam.0 as *const NMCUSTOMDRAW) };
-            if draw.dwDrawStage == CDDS_PREPAINT {
-                return LRESULT(CDRF_NOTIFYITEMDRAW as isize);
-            }
-            if draw.dwDrawStage == CDDS_ITEMPREPAINT {
-                unsafe { SetTextColor(draw.hdc, text) };
-                return LRESULT(CDRF_DODEFAULT as isize);
-            }
-        }
-    }
-    unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
-}
-
-fn make_font(dpi: u32) -> windows::Win32::Graphics::Gdi::HFONT {
-    unsafe {
-        let mut ncm = windows::Win32::UI::WindowsAndMessaging::NONCLIENTMETRICSW {
-            cbSize: std::mem::size_of::<windows::Win32::UI::WindowsAndMessaging::NONCLIENTMETRICSW>(
-            ) as u32,
-            ..Default::default()
-        };
-        let ok = SystemParametersInfoForDpi(
-            windows::Win32::UI::WindowsAndMessaging::SPI_GETNONCLIENTMETRICS.0,
-            ncm.cbSize,
-            Some(&mut ncm as *mut _ as *mut core::ffi::c_void),
-            0,
-            dpi,
-        );
-        let lf = if ok.is_ok() {
-            ncm.lfMessageFont
-        } else {
-            LOGFONTW::default()
-        };
-        CreateFontIndirectW(&lf)
+        refresh_rows(&ui);
     }
 }
 
-fn scale(v: i32, dpi: u32) -> i32 {
-    (v as f64 * dpi as f64 / 96.0).round() as i32
-}
-
-fn hiword(v: isize) -> i32 {
-    ((v as u32 >> 16) & 0xFFFF) as i32
-}
-
-fn make_lparam(low: i32, high: i32) -> LPARAM {
-    let packed = ((low as u32) & 0xFFFF) | (((high as u32) & 0xFFFF) << 16);
-    LPARAM(packed as i32 as isize)
-}
-
-// Asks the ListView itself how tall it needs to be to show `item_count`
-// rows plus the header at the given width, instead of guessing a pixel
-// height: the row height depends on the current font, which changes with
-// DPI.
-fn measure_list_height(listview: HWND, item_count: i32, content_w: i32) -> i32 {
-    let lparam = make_lparam(content_w, -1);
-    let result = unsafe {
-        SendMessageW(
-            listview,
-            LVM_APPROXIMATEVIEWRECT,
-            Some(WPARAM(item_count as usize)),
-            Some(lparam),
-        )
-    };
-    hiword(result.0)
-}
-
-struct Rects {
-    listview: RECT,
-    change_btn: RECT,
-    clear_btn: RECT,
-    restore_btn: RECT,
-    size_label: RECT,
-    sizes_edit: RECT,
-    size_hint: RECT,
-    startup_check: RECT,
-    auto_update_check: RECT,
-    update_status: RECT,
-    check_now_btn: RECT,
-    download_btn: RECT,
-    save_btn: RECT,
-    cancel_btn: RECT,
-}
-
-fn px(x: i32, y: i32, w: i32, h: i32) -> RECT {
-    RECT {
-        left: x,
-        top: y,
-        right: x + w,
-        bottom: y + h,
-    }
-}
-
-// Every dimension here starts from a 96-DPI baseline constant and is scaled
-// individually, except `list_h`, which is already in real device pixels
-// (measured at the current DPI by measure_list_height) and must not be
-// scaled again.
-fn compute_layout(dpi: u32, list_h: i32) -> Rects {
-    let margin = scale(MARGIN, dpi);
-    let list_y = scale(LIST_Y, dpi);
-    let total_w = scale(BASE_W, dpi);
-    let content_w = total_w - 2 * margin;
-
-    let list_bottom = list_y + list_h;
-    let row_btn_y = list_bottom + scale(8, dpi);
-    let row_btn_h = scale(24, dpi);
-    let size_label_y = row_btn_y + row_btn_h + scale(12, dpi);
-    let size_edit_y = size_label_y + scale(18, dpi);
-    let size_hint_y = size_edit_y + scale(24, dpi);
-    let startup_y = size_hint_y + scale(22, dpi);
-    let auto_update_y = startup_y + scale(24, dpi);
-    let update_row_y = auto_update_y + scale(24, dpi);
-    let update_row_h = scale(24, dpi);
-    let bottom_btn_y = update_row_y + update_row_h + scale(16, dpi);
-    let bottom_btn_h = scale(26, dpi);
-
-    Rects {
-        listview: px(margin, list_y, content_w, list_h),
-        change_btn: px(margin, row_btn_y, scale(90, dpi), row_btn_h),
-        clear_btn: px(
-            margin + scale(98, dpi),
-            row_btn_y,
-            scale(70, dpi),
-            row_btn_h,
-        ),
-        restore_btn: px(
-            margin + scale(176, dpi),
-            row_btn_y,
-            scale(120, dpi),
-            row_btn_h,
-        ),
-        size_label: px(margin, size_label_y, content_w, scale(16, dpi)),
-        sizes_edit: px(margin, size_edit_y, content_w, scale(22, dpi)),
-        size_hint: px(margin, size_hint_y, content_w, scale(16, dpi)),
-        startup_check: px(margin, startup_y, content_w, scale(20, dpi)),
-        auto_update_check: px(margin, auto_update_y, content_w, scale(20, dpi)),
-        update_status: px(
-            margin,
-            update_row_y,
-            scale(BASE_W - 2 * MARGIN - 178, dpi),
-            update_row_h,
-        ),
-        download_btn: px(
-            total_w - margin - scale(170, dpi),
-            update_row_y - scale(2, dpi),
-            scale(80, dpi),
-            update_row_h,
-        ),
-        check_now_btn: px(
-            total_w - margin - scale(84, dpi),
-            update_row_y - scale(2, dpi),
-            scale(84, dpi),
-            update_row_h,
-        ),
-        save_btn: px(
-            total_w - margin - scale(168, dpi),
-            bottom_btn_y,
-            scale(80, dpi),
-            bottom_btn_h,
-        ),
-        cancel_btn: px(
-            total_w - margin - scale(80, dpi),
-            bottom_btn_y,
-            scale(80, dpi),
-            bottom_btn_h,
-        ),
-    }
-}
-
-// Measures the real row height for all 12 actions, resizes the window to
-// fit them (plus everything below the list) with no vertical scrollbar,
-// and repositions every control to match. `pos` is the screen position to
-// move the window to; None keeps its current position (resize only).
-fn fit_window_to_list(h: &Hwnds, dpi: u32, pos: Option<(i32, i32)>) {
-    let margin = scale(MARGIN, dpi);
-    let total_w = scale(BASE_W, dpi);
-    let content_w = total_w - 2 * margin;
-    let list_h = measure_list_height(h.listview, Action::ALL.len() as i32, content_w);
-    let r = compute_layout(dpi, list_h);
-    let total_h = r.cancel_btn.bottom + margin;
-
-    let mut rect = RECT {
-        left: 0,
-        top: 0,
-        right: total_w,
-        bottom: total_h,
-    };
-    unsafe {
-        let _ =
-            AdjustWindowRectExForDpi(&mut rect, WINDOW_STYLE_BITS, false, WINDOW_EX_STYLE(0), dpi);
-        match pos {
-            Some((x, y)) => {
-                let _ = SetWindowPos(
-                    h.main,
-                    None,
-                    x,
-                    y,
-                    rect.right - rect.left,
-                    rect.bottom - rect.top,
-                    SWP_NOZORDER,
-                );
-            }
-            None => {
-                let _ = SetWindowPos(
-                    h.main,
-                    None,
-                    0,
-                    0,
-                    rect.right - rect.left,
-                    rect.bottom - rect.top,
-                    SWP_NOZORDER | SWP_NOMOVE,
-                );
-            }
-        }
-    }
-    apply_layout(h, &r);
-}
-
-fn apply_layout(h: &Hwnds, r: &Rects) {
-    let moves: [(HWND, RECT); 14] = [
-        (h.listview, r.listview),
-        (h.change_btn, r.change_btn),
-        (h.clear_btn, r.clear_btn),
-        (h.restore_btn, r.restore_btn),
-        (h.size_label, r.size_label),
-        (h.sizes_edit, r.sizes_edit),
-        (h.hint_label, r.size_hint),
-        (h.startup_check, r.startup_check),
-        (h.auto_update_check, r.auto_update_check),
-        (h.update_status, r.update_status),
-        (h.check_now_btn, r.check_now_btn),
-        (h.download_btn, r.download_btn),
-        (h.save_btn, r.save_btn),
-        (h.cancel_btn, r.cancel_btn),
-    ];
-    unsafe {
-        for (ctl, rc) in moves {
-            let _ = SetWindowPos(
-                ctl,
-                None,
-                rc.left,
-                rc.top,
-                rc.right - rc.left,
-                rc.bottom - rc.top,
-                SWP_NOZORDER,
-            );
-        }
-    }
-}
-
-fn create_controls(
-    main: HWND,
-    font: windows::Win32::Graphics::Gdi::HFONT,
-    dpi: u32,
-    list_h: i32,
-) -> Result<Hwnds> {
-    let r = compute_layout(dpi, list_h);
-    unsafe {
-        let hinstance = GetModuleHandleW(None)?;
-
-        let listview = CreateWindowExW(
-            WS_EX_CLIENTEDGE,
-            WC_LISTVIEW,
-            w!(""),
-            WS_CHILD
-                | WS_VISIBLE
-                | WS_TABSTOP
-                | WINDOW_STYLE(LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS),
-            r.listview.left,
-            r.listview.top,
-            r.listview.right - r.listview.left,
-            r.listview.bottom - r.listview.top,
-            Some(main),
-            Some(HMENU(ID_LISTVIEW as *mut core::ffi::c_void)),
-            Some(hinstance.into()),
-            None,
-        )?;
-        SendMessageW(
-            listview,
-            LVM_SETEXTENDEDLISTVIEWSTYLE,
-            Some(WPARAM(LVS_EX_FULLROWSELECT as usize)),
-            Some(LPARAM(LVS_EX_FULLROWSELECT as isize)),
-        );
-        let content_w = r.listview.right - r.listview.left;
-        let action_w = scale(185, dpi);
-        let shortcut_w = scale(125, dpi);
-        insert_column(listview, 0, "Action", action_w);
-        insert_column(listview, 1, "Shortcut", shortcut_w);
-        insert_column(
-            listview,
-            2,
-            "Status",
-            (content_w - action_w - shortcut_w).max(scale(80, dpi)),
-        );
-        // Fills the last column to the control's actual right edge, so
-        // there is no horizontal scrollbar regardless of rounding.
-        SendMessageW(
-            listview,
-            LVM_SETCOLUMNWIDTH,
-            Some(WPARAM(2)),
-            Some(LPARAM(LVSCW_AUTOSIZE_USEHEADER as isize)),
-        );
-
-        let change_btn =
-            create_button(main, hinstance, "Change...", ID_CHANGE, r.change_btn, false)?;
-        let clear_btn = create_button(main, hinstance, "Clear", ID_CLEAR, r.clear_btn, false)?;
-        let restore_btn = create_button(
-            main,
-            hinstance,
-            "Restore defaults",
-            ID_RESTORE,
-            r.restore_btn,
-            false,
-        )?;
-
-        let size_label = create_static(
-            main,
-            hinstance,
-            "Size cycle (repeat a shortcut to step through)",
-            r.size_label,
-        )?;
-
-        let sizes_edit = CreateWindowExW(
-            WS_EX_CLIENTEDGE,
-            windows::Win32::UI::Controls::WC_EDIT,
-            w!(""),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE(ES_AUTOHSCROLL as u32),
-            r.sizes_edit.left,
-            r.sizes_edit.top,
-            r.sizes_edit.right - r.sizes_edit.left,
-            r.sizes_edit.bottom - r.sizes_edit.top,
-            Some(main),
-            Some(HMENU(ID_SIZES_EDIT as *mut core::ffi::c_void)),
-            Some(hinstance.into()),
-            None,
-        )?;
-
-        let hint_label = create_static(
-            main,
-            hinstance,
-            "Fractions or percentages, separated by commas.",
-            r.size_hint,
-        )?;
-
-        let startup_check = create_button(
-            main,
-            hinstance,
-            "Launch Wectangle when Windows starts",
-            ID_STARTUP_CHECK,
-            r.startup_check,
-            true,
-        )?;
-
-        let auto_update_check = create_button(
-            main,
-            hinstance,
-            "Check for updates automatically",
-            ID_AUTO_UPDATE_CHECK,
-            r.auto_update_check,
-            true,
-        )?;
-        let update_status = create_static(main, hinstance, "", r.update_status)?;
-        let check_now_btn = create_button(
-            main,
-            hinstance,
-            "Check now",
-            ID_CHECK_NOW,
-            r.check_now_btn,
-            false,
-        )?;
-        let download_btn = create_button(
-            main,
-            hinstance,
-            "Download",
-            ID_DOWNLOAD,
-            r.download_btn,
-            false,
-        )?;
-
-        let save_btn = create_default_button(main, hinstance, "Save", ID_SAVE, r.save_btn)?;
-        let cancel_btn = create_button(main, hinstance, "Cancel", ID_CANCEL, r.cancel_btn, false)?;
-
-        for ctl in [
-            listview,
-            change_btn,
-            clear_btn,
-            restore_btn,
-            size_label,
-            sizes_edit,
-            hint_label,
-            startup_check,
-            auto_update_check,
-            update_status,
-            check_now_btn,
-            download_btn,
-            save_btn,
-            cancel_btn,
-        ] {
-            SendMessageW(
-                ctl,
-                WM_SETFONT,
-                Some(WPARAM(font.0 as usize)),
-                Some(LPARAM(1)),
-            );
-        }
-
-        let bg_brush = windows::Win32::Graphics::Gdi::CreateSolidBrush(colorref(
-            theme::themed_palette(theme::current_mode()).bg,
-        ));
-
-        Ok(Hwnds {
-            main,
-            listview,
-            change_btn,
-            clear_btn,
-            restore_btn,
-            size_label,
-            sizes_edit,
-            hint_label,
-            startup_check,
-            auto_update_check,
-            check_now_btn,
-            update_status,
-            download_btn,
-            save_btn,
-            cancel_btn,
-            font,
-            bg_brush,
-        })
-    }
-}
-
-fn colorref(c: theme::Rgb) -> windows::Win32::Foundation::COLORREF {
-    windows::Win32::Foundation::COLORREF(c.r as u32 | (c.g as u32) << 8 | (c.b as u32) << 16)
-}
-
-fn create_button(
-    parent: HWND,
-    hinstance: windows::Win32::Foundation::HMODULE,
-    text: &str,
-    id: i32,
-    r: RECT,
-    checkbox: bool,
-) -> Result<HWND> {
-    let style_bits = if checkbox {
-        windows::Win32::UI::WindowsAndMessaging::BS_AUTOCHECKBOX as u32
-    } else {
-        windows::Win32::UI::WindowsAndMessaging::BS_PUSHBUTTON as u32
-    };
-    unsafe {
-        CreateWindowExW(
-            WINDOW_EX_STYLE(0),
-            windows::Win32::UI::Controls::WC_BUTTON,
-            PCWSTR::from_raw(to_wide(text).as_ptr()),
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_GROUP | WINDOW_STYLE(style_bits),
-            r.left,
-            r.top,
-            r.right - r.left,
-            r.bottom - r.top,
-            Some(parent),
-            Some(HMENU(id as *mut core::ffi::c_void)),
-            Some(hinstance.into()),
-            None,
-        )
-    }
-}
-
-fn create_default_button(
-    parent: HWND,
-    hinstance: windows::Win32::Foundation::HMODULE,
-    text: &str,
-    id: i32,
-    r: RECT,
-) -> Result<HWND> {
-    unsafe {
-        CreateWindowExW(
-            WINDOW_EX_STYLE(0),
-            windows::Win32::UI::Controls::WC_BUTTON,
-            PCWSTR::from_raw(to_wide(text).as_ptr()),
-            WS_CHILD
-                | WS_VISIBLE
-                | WS_TABSTOP
-                | WS_GROUP
-                | WINDOW_STYLE(windows::Win32::UI::WindowsAndMessaging::BS_DEFPUSHBUTTON as u32),
-            r.left,
-            r.top,
-            r.right - r.left,
-            r.bottom - r.top,
-            Some(parent),
-            Some(HMENU(id as *mut core::ffi::c_void)),
-            Some(hinstance.into()),
-            None,
-        )
-    }
-}
-
-fn create_static(
-    parent: HWND,
-    hinstance: windows::Win32::Foundation::HMODULE,
-    text: &str,
-    r: RECT,
-) -> Result<HWND> {
-    unsafe {
-        CreateWindowExW(
-            WINDOW_EX_STYLE(0),
-            windows::Win32::UI::Controls::WC_STATIC,
-            PCWSTR::from_raw(to_wide(text).as_ptr()),
-            WS_CHILD | WS_VISIBLE,
-            r.left,
-            r.top,
-            r.right - r.left,
-            r.bottom - r.top,
-            Some(parent),
-            None,
-            Some(hinstance.into()),
-            None,
-        )
-    }
-}
-
-fn to_wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-fn insert_column(listview: HWND, index: i32, title: &str, width: i32) {
-    let mut wide = to_wide(title);
-    let col = LVCOLUMNW {
-        mask: LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM,
-        fmt: LVCFMT_LEFT,
-        cx: width,
-        pszText: PWSTR(wide.as_mut_ptr()),
-        iSubItem: index,
-        ..Default::default()
-    };
-    unsafe {
-        SendMessageW(
-            listview,
-            LVM_INSERTCOLUMNW,
-            Some(WPARAM(index as usize)),
-            Some(LPARAM(&col as *const _ as isize)),
-        );
-    }
-}
-
-fn insert_row(listview: HWND, row: i32, text: &str) {
-    let mut wide = to_wide(text);
-    let item = LVITEMW {
-        mask: LVIF_TEXT,
-        iItem: row,
-        iSubItem: 0,
-        pszText: PWSTR(wide.as_mut_ptr()),
-        ..Default::default()
-    };
-    unsafe {
-        SendMessageW(
-            listview,
-            LVM_INSERTITEMW,
-            Some(WPARAM(0)),
-            Some(LPARAM(&item as *const _ as isize)),
-        );
-    }
-}
-
-fn set_item_text(listview: HWND, row: i32, col: i32, text: &str) {
-    let mut wide = to_wide(text);
-    let item = LVITEMW {
-        mask: LVIF_TEXT,
-        iItem: row,
-        iSubItem: col,
-        pszText: PWSTR(wide.as_mut_ptr()),
-        ..Default::default()
-    };
-    unsafe {
-        SendMessageW(
-            listview,
-            LVM_SETITEMTEXTW,
-            Some(WPARAM(row as usize)),
-            Some(LPARAM(&item as *const _ as isize)),
-        );
-    }
-}
-
-fn selected_row(listview: HWND) -> Option<usize> {
-    let result = unsafe {
-        SendMessageW(
-            listview,
-            LVM_GETNEXTITEM,
-            Some(WPARAM(usize::MAX)),
-            Some(LPARAM(LVNI_SELECTED as isize)),
-        )
-    };
-    if result.0 < 0 {
-        None
-    } else {
-        Some(result.0 as usize)
-    }
-}
-
-fn status_text(sc: Option<Shortcut>, note: Option<String>) -> String {
-    if let Some(note) = note {
-        return note;
-    }
-    match sc.and_then(|s| shortcut::altgr_char(&s)) {
-        Some(ch) => format!(
-            "Also blocks typing {ch} (AltGr+{})",
-            shortcut::key_name(&sc.unwrap())
-        ),
-        None => String::new(),
-    }
-}
-
-// The takeover note belongs to the applied shortcut, so it only shows while
-// the staged shortcut is still the applied one.
-fn applied_note(action: Action, sc: Option<Shortcut>) -> Option<String> {
-    let applied = app::current_config().shortcuts.get(action);
-    if sc.is_some() && sc == applied {
-        app::shortcut_note(action)
-    } else {
-        None
-    }
-}
-
-fn refresh_update_status(h: &Hwnds) {
-    let state = update::state();
-    unsafe {
-        let _ = SetWindowTextW(
-            h.update_status,
-            PCWSTR::from_raw(to_wide(&update::status_line(&state)).as_ptr()),
-        );
-    }
-    let show_download = matches!(state, update::State::Available { .. });
-    unsafe {
-        let _ = ShowWindow(
-            h.download_btn,
-            if show_download {
-                SW_SHOW
-            } else {
-                windows::Win32::UI::WindowsAndMessaging::SW_HIDE
-            },
-        );
-    }
-}
-
-/// Refreshes the update row of an open Settings window.
-pub fn on_update_state_changed() {
-    if let Some(h) = HWNDS.with(|c| c.get()) {
-        refresh_update_status(&h);
-    }
-}
-
-fn populate_listview(h: &Hwnds, shortcuts: &crate::config::Shortcuts) {
-    for (row, action) in Action::ALL.iter().enumerate() {
-        insert_row(h.listview, row as i32, action.label());
-        let sc = shortcuts.get(*action);
-        set_item_text(
-            h.listview,
-            row as i32,
-            1,
-            &sc.map(|s| shortcut::format(&s)).unwrap_or_default(),
-        );
-        set_item_text(
-            h.listview,
-            row as i32,
-            2,
-            &status_text(sc, applied_note(*action, sc)),
-        );
-    }
-}
-
-fn refresh_row(h: &Hwnds, row: usize) {
-    let sc = STAGED.with(|s| {
-        s.borrow()
-            .as_ref()
-            .map(|st| st.shortcuts.get(Action::ALL[row]))
-    });
-    let Some(sc) = sc else { return };
-    set_item_text(
-        h.listview,
-        row as i32,
-        1,
-        &sc.map(|s| shortcut::format(&s)).unwrap_or_default(),
-    );
-    set_item_text(
-        h.listview,
-        row as i32,
-        2,
-        &status_text(sc, applied_note(Action::ALL[row], sc)),
-    );
-}
-
-fn set_row_text(h: &Hwnds, row: usize, shortcut_col: &str, status_col: &str) {
-    set_item_text(h.listview, row as i32, 1, shortcut_col);
-    set_item_text(h.listview, row as i32, 2, status_col);
-}
-
-fn start_recording(h: &Hwnds, row: usize) {
-    let already_recording = STAGED.with(|s| {
-        s.borrow()
-            .as_ref()
-            .map(|st| st.recording_row.is_some())
-            .unwrap_or(true)
-    });
-    if already_recording {
-        return;
-    }
-    app::suspend_hotkeys();
-    STAGED.with(|s| {
-        if let Some(st) = s.borrow_mut().as_mut() {
-            st.recording_row = Some(row);
-        }
-    });
-    set_row_text(h, row, "Press the new shortcut... (Esc cancels)", "");
-    HOOK_PHASE.with(|p| p.set(HookPhase::Recording));
-    install_hook();
-}
-
-fn stop_recording() -> Option<usize> {
+// Ends a recording, if one is running. `resume` re-registers the hotkeys that
+// start_recording suspended; commit() skips it because applying does that.
+fn finish_recording(resume: bool) -> Option<usize> {
+    let row = RECORDING.with(|r| r.take())?;
     remove_hook();
-    let row = STAGED.with(|s| {
-        s.borrow_mut()
-            .as_mut()
-            .and_then(|st| st.recording_row.take())
-    });
-    if row.is_some() {
+    if resume {
         app::resume_hotkeys();
     }
-    row
+    Some(row)
 }
 
 fn install_hook() {
+    HOOK_TARGET.with(|t| t.set(Some(app::main_hwnd())));
     unsafe {
         let hinstance = GetModuleHandleW(None).unwrap_or_default();
-        if let Ok(h) = windows::Win32::UI::WindowsAndMessaging::SetWindowsHookExW(
-            windows::Win32::UI::WindowsAndMessaging::WH_KEYBOARD_LL,
+        if let Ok(h) = SetWindowsHookExW(
+            WH_KEYBOARD_LL,
             Some(keyboard_hook_proc),
             Some(hinstance.into()),
             0,
@@ -1106,7 +315,7 @@ fn install_hook() {
 fn remove_hook() {
     if let Some(h) = HOOK.with(|c| c.take()) {
         unsafe {
-            let _ = windows::Win32::UI::WindowsAndMessaging::UnhookWindowsHookEx(h);
+            let _ = UnhookWindowsHookEx(h);
         }
     }
     HOOK_PHASE.with(|p| p.set(HookPhase::Idle));
@@ -1152,11 +361,11 @@ extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
                         }
 
                         HOOK_PHASE.with(|p| p.set(HookPhase::SwallowingKeyUp(vk)));
-                        if let Some(h) = HWNDS.with(|c| c.get()) {
+                        if let Some(target) = HOOK_TARGET.with(|t| t.get()) {
                             unsafe {
                                 let _ = PostMessageW(
-                                    Some(h.main),
-                                    WM_APP_RECORDER_KEY,
+                                    Some(target),
+                                    app::WM_APP_RECORDER_KEY,
                                     WPARAM(vk as usize),
                                     LPARAM(mods),
                                 );
@@ -1177,17 +386,18 @@ extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
             }
         }
     }
-    unsafe { windows::Win32::UI::WindowsAndMessaging::CallNextHookEx(None, code, wparam, lparam) }
+    unsafe { CallNextHookEx(None, code, wparam, lparam) }
 }
 
-fn on_recorder_key(h: &Hwnds, vk: u16, mods: isize) {
-    let Some(row) = STAGED.with(|s| s.borrow().as_ref().and_then(|st| st.recording_row)) else {
+/// Handles a key captured by the recorder hook, posted to the main window.
+pub fn on_recorder_key(vk: u16, mods: isize) {
+    let Some(index) = RECORDING.with(|r| r.get()) else {
         return;
     };
+    let Some(ui) = window() else { return };
 
     if vk == VK_ESCAPE.0 {
-        stop_recording();
-        refresh_row(h, row);
+        cancel_recording();
         return;
     }
 
@@ -1201,12 +411,7 @@ fn on_recorder_key(h: &Hwnds, vk: u16, mods: isize) {
     }
 
     if !(ctrl || alt || win) {
-        set_row_text(
-            h,
-            row,
-            "Press the new shortcut... (Esc cancels)",
-            "Needs at least one of Ctrl, Alt or Win.",
-        );
+        show_row(&ui, index, Some("Needs at least one of Ctrl, Alt or Win."));
         return;
     }
 
@@ -1218,62 +423,19 @@ fn on_recorder_key(h: &Hwnds, vk: u16, mods: isize) {
         vk,
     };
 
-    let duplicate = STAGED.with(|s| {
-        s.borrow().as_ref().and_then(|st| {
-            Action::ALL
-                .iter()
-                .enumerate()
-                .find(|&(i, a)| i != row && st.shortcuts.get(*a) == Some(candidate))
-                .map(|(_, a)| a.label())
-        })
-    });
+    let mut config = app::current_config();
+    let duplicate = Action::ALL
+        .iter()
+        .enumerate()
+        .find(|&(i, a)| i != index && config.shortcuts.get(*a) == Some(candidate))
+        .map(|(_, a)| a.label());
     if let Some(label) = duplicate {
-        set_row_text(
-            h,
-            row,
-            "Press the new shortcut... (Esc cancels)",
-            &format!("Already used by {label}."),
-        );
+        show_row(&ui, index, Some(&format!("Already used by {label}.")));
         return;
     }
 
-    let note = (!test_register(h.main, candidate)).then(|| app::candidate_note(&candidate));
-    stage_shortcut(row, Some(candidate));
-    stop_recording();
-    set_row_text(
-        h,
-        row,
-        &shortcut::format(&candidate),
-        &status_text(Some(candidate), note),
-    );
-}
-
-fn test_register(hwnd: HWND, sc: Shortcut) -> bool {
-    let modifiers = shortcut::hotkey_modifiers(&sc);
-    unsafe {
-        let ok = windows::Win32::UI::Input::KeyboardAndMouse::RegisterHotKey(
-            Some(hwnd),
-            ID_TEST_HOTKEY,
-            modifiers,
-            sc.vk as u32,
-        )
-        .is_ok();
-        if ok {
-            let _ = windows::Win32::UI::Input::KeyboardAndMouse::UnregisterHotKey(
-                Some(hwnd),
-                ID_TEST_HOTKEY,
-            );
-        }
-        ok
-    }
-}
-
-fn stage_shortcut(row: usize, value: Option<Shortcut>) {
-    STAGED.with(|s| {
-        if let Some(st) = s.borrow_mut().as_mut() {
-            set_shortcut_field(&mut st.shortcuts, Action::ALL[row], value);
-        }
-    });
+    set_shortcut_field(&mut config.shortcuts, Action::ALL[index], Some(candidate));
+    commit(config);
 }
 
 fn set_shortcut_field(
@@ -1294,325 +456,5 @@ fn set_shortcut_field(
         Action::Center => shortcuts.center = value,
         Action::NextDisplay => shortcuts.next_display = value,
         Action::PreviousDisplay => shortcuts.previous_display = value,
-    }
-}
-
-fn do_change(h: &Hwnds) {
-    if let Some(row) = selected_row(h.listview) {
-        start_recording(h, row);
-    }
-}
-
-fn do_clear(h: &Hwnds) {
-    if let Some(row) = selected_row(h.listview) {
-        stage_shortcut(row, None);
-        set_row_text(h, row, "", "");
-    }
-}
-
-fn do_restore_defaults(h: &Hwnds) {
-    let defaults = Config::defaults();
-    STAGED.with(|s| {
-        if let Some(st) = s.borrow_mut().as_mut() {
-            st.shortcuts = defaults.shortcuts.clone();
-        }
-    });
-    populate_listview(h, &defaults.shortcuts);
-    unsafe {
-        let _ = SetWindowTextW(
-            h.sizes_edit,
-            PCWSTR::from_raw(to_wide(&defaults.sizes.join(", ")).as_ptr()),
-        );
-    }
-}
-
-fn read_edit_text(hwnd: HWND) -> String {
-    let mut buf = [0u16; 512];
-    let len = unsafe { GetWindowTextW(hwnd, &mut buf) };
-    String::from_utf16_lossy(&buf[..len.max(0) as usize])
-}
-
-fn parse_sizes(text: &str) -> std::result::Result<Vec<String>, &'static str> {
-    let entries: Vec<String> = text
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-    if entries.is_empty() || entries.len() > 8 {
-        return Err("Enter 1 to 8 fractions or percentages, separated by commas.");
-    }
-    for entry in &entries {
-        if config::parse_size(entry).is_err() {
-            return Err("Each size must be a fraction or percentage between 0 and 1.");
-        }
-    }
-    Ok(entries)
-}
-
-fn do_save(h: &Hwnds) {
-    let sizes_text = read_edit_text(h.sizes_edit);
-    let sizes = match parse_sizes(&sizes_text) {
-        Ok(sizes) => sizes,
-        Err(message) => {
-            show_message(h.main, message);
-            return;
-        }
-    };
-
-    let shortcuts = STAGED.with(|s| s.borrow().as_ref().map(|st| st.shortcuts.clone()));
-    let Some(shortcuts) = shortcuts else { return };
-
-    let mut new_config = app::current_config();
-    new_config.sizes = sizes;
-    new_config.shortcuts = shortcuts;
-    let failed = app::apply_new_config(new_config);
-
-    let checked = unsafe {
-        SendMessageW(
-            h.startup_check,
-            windows::Win32::UI::WindowsAndMessaging::BM_GETCHECK,
-            None,
-            None,
-        )
-    };
-    let wants_startup = checked.0 != 0;
-    if wants_startup != startup::is_enabled() {
-        let _ = startup::set_enabled(wants_startup);
-    }
-
-    if !failed.is_empty() {
-        let shortcuts = STAGED.with(|s| s.borrow().as_ref().map(|st| st.shortcuts.clone()));
-        if let Some(shortcuts) = shortcuts {
-            for (row, action) in Action::ALL.iter().enumerate() {
-                let sc = shortcuts.get(*action);
-                set_item_text(
-                    h.listview,
-                    row as i32,
-                    2,
-                    &status_text(sc, applied_note(*action, sc)),
-                );
-            }
-        }
-        return;
-    }
-
-    close_window(h);
-}
-
-fn do_cancel(h: &Hwnds) {
-    close_window(h);
-}
-
-fn show_message(owner: HWND, text: &str) {
-    unsafe {
-        windows::Win32::UI::WindowsAndMessaging::MessageBoxW(
-            Some(owner),
-            PCWSTR::from_raw(to_wide(text).as_ptr()),
-            w!("Wectangle Settings"),
-            windows::Win32::UI::WindowsAndMessaging::MB_OK,
-        );
-    }
-}
-
-fn close_window(h: &Hwnds) {
-    if STAGED.with(|s| {
-        s.borrow()
-            .as_ref()
-            .map(|st| st.recording_row.is_some())
-            .unwrap_or(false)
-    }) {
-        stop_recording();
-    }
-    unsafe {
-        let _ = DestroyWindow(h.main);
-    }
-}
-
-extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
-    match msg {
-        WM_APP_RECORDER_KEY => {
-            if let Some(h) = HWNDS.with(|c| c.get()) {
-                on_recorder_key(&h, wparam.0 as u16, lparam.0);
-            }
-            LRESULT(0)
-        }
-        WM_COMMAND => {
-            let id = (wparam.0 & 0xFFFF) as i32;
-            if let Some(h) = HWNDS.with(|c| c.get()) {
-                match id {
-                    ID_CHANGE => do_change(&h),
-                    ID_CLEAR => do_clear(&h),
-                    ID_RESTORE => do_restore_defaults(&h),
-                    ID_SAVE => {
-                        let focus = unsafe { GetFocus() };
-                        if focus == h.listview {
-                            do_change(&h);
-                        } else {
-                            do_save(&h);
-                        }
-                    }
-                    ID_CANCEL => do_cancel(&h),
-                    ID_AUTO_UPDATE_CHECK => {
-                        let checked = unsafe {
-                            SendMessageW(
-                                h.auto_update_check,
-                                windows::Win32::UI::WindowsAndMessaging::BM_GETCHECK,
-                                None,
-                                None,
-                            )
-                        };
-                        update::set_auto(checked.0 != 0);
-                    }
-                    ID_CHECK_NOW => {
-                        update::check_now();
-                        refresh_update_status(&h);
-                    }
-                    ID_DOWNLOAD => update::open_download(),
-                    _ => {}
-                }
-            }
-            LRESULT(0)
-        }
-        WM_NOTIFY => {
-            let nmhdr = unsafe { &*(lparam.0 as *const NMHDR) };
-            if nmhdr.code == NM_DBLCLK
-                && let Some(h) = HWNDS.with(|c| c.get())
-                && nmhdr.hwndFrom == h.listview
-            {
-                let activate = unsafe { &*(lparam.0 as *const NMITEMACTIVATE) };
-                if activate.iItem >= 0 {
-                    start_recording(&h, activate.iItem as usize);
-                }
-            }
-            LRESULT(0)
-        }
-        WM_DPICHANGED => {
-            if let Some(mut h) = HWNDS.with(|c| c.get()) {
-                let dpi = (wparam.0 & 0xFFFF) as u32;
-                let suggested = unsafe { &*(lparam.0 as *const RECT) };
-
-                let old_font = h.font;
-                h.font = make_font(dpi);
-                HWNDS.with(|c| c.set(Some(h)));
-
-                for ctl in [
-                    h.listview,
-                    h.change_btn,
-                    h.clear_btn,
-                    h.restore_btn,
-                    h.size_label,
-                    h.sizes_edit,
-                    h.hint_label,
-                    h.startup_check,
-                    h.auto_update_check,
-                    h.update_status,
-                    h.check_now_btn,
-                    h.download_btn,
-                    h.save_btn,
-                    h.cancel_btn,
-                ] {
-                    unsafe {
-                        SendMessageW(
-                            ctl,
-                            WM_SETFONT,
-                            Some(WPARAM(h.font.0 as usize)),
-                            Some(LPARAM(1)),
-                        );
-                    }
-                }
-                unsafe {
-                    let _ = DeleteObject(old_font.into());
-                }
-
-                fit_window_to_list(&h, dpi, Some((suggested.left, suggested.top)));
-            }
-            LRESULT(0)
-        }
-        msg if msg == app::WM_APP_THEME_CHANGED => {
-            if let Some(h) = HWNDS.with(|c| c.get()) {
-                theme::apply_title_bar(h.main, theme::current_mode() == theme::Mode::Dark);
-                apply_dark_mode(&h);
-                unsafe {
-                    let old = h.bg_brush;
-                    let new_brush = windows::Win32::Graphics::Gdi::CreateSolidBrush(colorref(
-                        theme::themed_palette(theme::current_mode()).bg,
-                    ));
-                    HWNDS.with(|c| {
-                        c.set(Some(Hwnds {
-                            bg_brush: new_brush,
-                            ..h
-                        }))
-                    });
-                    let _ = DeleteObject(old.into());
-                    let _ = RedrawWindow(
-                        Some(h.main),
-                        None,
-                        None,
-                        RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN,
-                    );
-                }
-            }
-            LRESULT(0)
-        }
-        WM_CTLCOLORSTATIC | WM_CTLCOLORBTN | WM_CTLCOLOREDIT => {
-            if let Some(h) = HWNDS.with(|c| c.get()) {
-                let palette = theme::themed_palette(theme::current_mode());
-                unsafe {
-                    let hdc =
-                        windows::Win32::Graphics::Gdi::HDC(wparam.0 as *mut core::ffi::c_void);
-                    SetBkMode(hdc, TRANSPARENT);
-                    SetTextColor(hdc, colorref(palette.text));
-                    LRESULT(h.bg_brush.0 as isize)
-                }
-            } else {
-                unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
-            }
-        }
-        WM_ERASEBKGND => {
-            if let Some(h) = HWNDS.with(|c| c.get()) {
-                unsafe {
-                    let hdc =
-                        windows::Win32::Graphics::Gdi::HDC(wparam.0 as *mut core::ffi::c_void);
-                    let mut rc = RECT::default();
-                    let _ = GetClientRect(hwnd, &mut rc);
-                    FillRect(hdc, &rc, h.bg_brush);
-                }
-                LRESULT(1)
-            } else {
-                unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
-            }
-        }
-        WM_CLOSE => {
-            if let Some(h) = HWNDS.with(|c| c.get()) {
-                do_cancel(&h);
-            }
-            LRESULT(0)
-        }
-        WM_DESTROY => {
-            if let Some(h) = HWNDS.with(|c| c.take()) {
-                unsafe {
-                    let _ = RemoveWindowSubclass(
-                        h.listview,
-                        Some(listview_subclass),
-                        LISTVIEW_SUBCLASS_ID,
-                    );
-                }
-                if STAGED.with(|s| {
-                    s.borrow()
-                        .as_ref()
-                        .map(|st| st.recording_row.is_some())
-                        .unwrap_or(false)
-                }) {
-                    stop_recording();
-                }
-                unsafe {
-                    let _ = DeleteObject(h.font.into());
-                    let _ = DeleteObject(h.bg_brush.into());
-                }
-            }
-            STAGED.with(|s| *s.borrow_mut() = None);
-            LRESULT(0)
-        }
-        _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
     }
 }
