@@ -16,7 +16,7 @@ use crate::config::{self, Config};
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
 use crate::theme;
-use crate::{takeover, tray, window_ops};
+use crate::{owners, takeover, tray, window_ops};
 
 pub const WINDOW_CLASS_NAME: PCWSTR = w!("WectangleMainWindow");
 pub const WM_APP_TRAY: u32 = WM_APP + 1;
@@ -158,8 +158,11 @@ pub fn candidate_note(sc: &Shortcut) -> String {
 
 const RESERVED_NOTE: &str = "Reserved by Windows";
 
-fn takeover_note(_sc: &Shortcut) -> String {
-    "Overrides Windows or another app".to_string()
+fn takeover_note(sc: &Shortcut) -> String {
+    match owners::find_owner(sc) {
+        Some(owner) => owner.note(),
+        None => "Overrides Windows or another app".to_string(),
+    }
 }
 
 pub fn suspend_hotkeys() {

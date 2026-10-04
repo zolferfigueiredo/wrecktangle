@@ -1,13 +1,14 @@
 #![windows_subsystem = "windows"]
-// Off Windows, the pure modules (config, layout, shortcut, takeover, theme)
-// are only exercised by `cargo test`; nothing else in the crate calls them
-// there.
+// Off Windows, the pure modules (config, layout, owners, shortcut, takeover,
+// theme) are only exercised by `cargo test`; nothing else in the crate calls
+// them there.
 #![cfg_attr(not(windows), allow(dead_code))]
 
 #[cfg(windows)]
 mod app;
 mod config;
 mod layout;
+mod owners;
 #[cfg(windows)]
 mod settings;
 mod shortcut;
