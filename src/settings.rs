@@ -35,6 +35,7 @@ use windows::core::{Error, HRESULT, PCWSTR, PWSTR, Result, w};
 use crate::config::{self, Config};
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
+use crate::theme;
 use crate::{app, startup};
 
 const WINDOW_CLASS_NAME: PCWSTR = w!("WectangleSettingsWindow");
@@ -176,6 +177,8 @@ fn create_window() -> Result<()> {
             Some(hinstance.into()),
             None,
         )?;
+
+        theme::apply_title_bar(main, theme::current_mode() == theme::Mode::Dark);
 
         let dpi = GetDpiForWindow(main).max(1);
         let font = make_font(dpi);
@@ -1296,6 +1299,12 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 }
 
                 fit_window_to_list(&h, dpi, Some((suggested.left, suggested.top)));
+            }
+            LRESULT(0)
+        }
+        msg if msg == app::WM_APP_THEME_CHANGED => {
+            if let Some(h) = HWNDS.with(|c| c.get()) {
+                theme::apply_title_bar(h.main, theme::current_mode() == theme::Mode::Dark);
             }
             LRESULT(0)
         }

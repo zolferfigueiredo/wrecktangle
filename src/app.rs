@@ -5,9 +5,9 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, PostQuitMessage, RegisterClassExW,
-    RegisterWindowMessageW, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_HOTKEY, WNDCLASSEXW,
-    WS_EX_TOOLWINDOW,
+    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, PostMessageW, PostQuitMessage,
+    RegisterClassExW, RegisterWindowMessageW, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_HOTKEY,
+    WM_SETTINGCHANGE, WNDCLASSEXW, WS_EX_TOOLWINDOW,
 };
 use windows::core::PCWSTR;
 use windows::core::w;
@@ -15,11 +15,13 @@ use windows::core::w;
 use crate::config::{self, Config};
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
+use crate::theme;
 use crate::{tray, window_ops};
 
 pub const WINDOW_CLASS_NAME: PCWSTR = w!("WectangleMainWindow");
 pub const WM_APP_TRAY: u32 = WM_APP + 1;
 pub const WM_APP_OPEN_SETTINGS: u32 = WM_APP + 2;
+pub const WM_APP_THEME_CHANGED: u32 = WM_APP + 3;
 
 struct State {
     hwnd: HWND,
@@ -85,6 +87,8 @@ pub fn init() -> windows::core::Result<HWND> {
                 admin_notice_shown: false,
             });
         });
+
+        theme::apply_dark_menu(theme::current_mode() == theme::Mode::Dark);
 
         let failed = register_all(hwnd);
         tray::add(hwnd)?;
@@ -260,6 +264,22 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         WM_APP_OPEN_SETTINGS => {
             crate::settings::open();
             LRESULT(0)
+        }
+        WM_SETTINGCHANGE => {
+            if theme::is_immersive_color_set_change(lparam) {
+                theme::apply_dark_menu(theme::current_mode() == theme::Mode::Dark);
+                if let Some(settings_hwnd) = crate::settings::hwnd() {
+                    unsafe {
+                        let _ = PostMessageW(
+                            Some(settings_hwnd),
+                            WM_APP_THEME_CHANGED,
+                            WPARAM(0),
+                            LPARAM(0),
+                        );
+                    }
+                }
+            }
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
         WM_DESTROY => {
             unregister_all(hwnd);
