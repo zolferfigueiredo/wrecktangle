@@ -11,6 +11,11 @@ use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 #[cfg(windows)]
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 #[cfg(windows)]
+use windows::Win32::UI::WindowsAndMessaging::{
+    IsWindowVisible, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SetWindowPos,
+};
+#[cfg(windows)]
 use windows::core::{BOOL, PCSTR, PCWSTR, w};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -182,6 +187,19 @@ pub fn apply_title_bar(hwnd: HWND, dark: bool) {
             &value as *const BOOL as *const core::ffi::c_void,
             std::mem::size_of::<BOOL>() as u32,
         );
+        // A visible window keeps its old title bar until the frame is
+        // recalculated.
+        if IsWindowVisible(hwnd).as_bool() {
+            let _ = SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
     }
 }
 

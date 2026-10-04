@@ -1,18 +1,20 @@
 use std::cell::{Cell, RefCell};
 
-use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{
-    COLOR_BTNFACE, CreateFontIndirectW, DeleteObject, FillRect, GetSysColorBrush, InvalidateRect,
-    LOGFONTW, SetBkMode, SetTextColor, TRANSPARENT,
+    COLOR_BTNFACE, CreateFontIndirectW, DeleteObject, FillRect, GetSysColorBrush, LOGFONTW,
+    RDW_ALLCHILDREN, RDW_ERASE, RDW_FRAME, RDW_INVALIDATE, RedrawWindow, SetBkMode, SetTextColor,
+    TRANSPARENT,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Controls::{
-    ICC_LISTVIEW_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, LIM_LARGE, LIM_SMALL,
-    LVCF_SUBITEM, LVCF_TEXT, LVCF_WIDTH, LVCFMT_LEFT, LVCOLUMNW, LVIF_TEXT, LVITEMW,
-    LVM_APPROXIMATEVIEWRECT, LVM_GETNEXTITEM, LVM_INSERTCOLUMNW, LVM_INSERTITEMW,
-    LVM_SETCOLUMNWIDTH, LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMTEXTW, LVNI_SELECTED,
-    LVS_EX_FULLROWSELECT, LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, LVSCW_AUTOSIZE_USEHEADER,
-    LoadIconMetric, NM_DBLCLK, NMHDR, NMITEMACTIVATE, WC_LISTVIEW,
+    CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDRF_DODEFAULT, CDRF_NOTIFYITEMDRAW, ICC_LISTVIEW_CLASSES,
+    INITCOMMONCONTROLSEX, InitCommonControlsEx, LIM_LARGE, LIM_SMALL, LVCF_SUBITEM, LVCF_TEXT,
+    LVCF_WIDTH, LVCFMT_LEFT, LVCOLUMNW, LVIF_TEXT, LVITEMW, LVM_APPROXIMATEVIEWRECT,
+    LVM_GETNEXTITEM, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETCOLUMNWIDTH,
+    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMTEXTW, LVNI_SELECTED, LVS_EX_FULLROWSELECT,
+    LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, LVSCW_AUTOSIZE_USEHEADER, LoadIconMetric,
+    NM_CUSTOMDRAW, NM_DBLCLK, NMCUSTOMDRAW, NMHDR, NMITEMACTIVATE, WC_LISTVIEW,
 };
 use windows::Win32::UI::HiDpi::{
     AdjustWindowRectExForDpi, GetDpiForWindow, SystemParametersInfoForDpi,
@@ -22,15 +24,16 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_KEYUP, SendInput, VIRTUAL_KEY, VK_CONTROL, VK_ESCAPE, VK_LCONTROL, VK_LMENU,
     VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL, VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
 };
+use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows::Win32::UI::WindowsAndMessaging::{
     CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, DestroyWindow, ES_AUTOHSCROLL, GetClientRect,
-    GetWindowTextW, HMENU, ICON_BIG, ICON_SMALL, IDCANCEL, IDOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED,
-    PostMessageW, RegisterClassExW, SW_SHOW, SWP_NOMOVE, SWP_NOZORDER, SendMessageW,
-    SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE, WINDOW_STYLE,
-    WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC, WM_DESTROY,
-    WM_DPICHANGED, WM_ERASEBKGND, WM_KEYDOWN, WM_KEYUP, WM_NOTIFY, WM_SETFONT, WM_SETICON,
-    WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSEXW, WS_CAPTION, WS_CHILD, WS_EX_CLIENTEDGE, WS_GROUP,
-    WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+    GetParent, GetWindowTextW, HMENU, ICON_BIG, ICON_SMALL, IDCANCEL, IDOK, KBDLLHOOKSTRUCT,
+    LLKHF_INJECTED, PostMessageW, RegisterClassExW, SW_SHOW, SWP_NOMOVE, SWP_NOZORDER,
+    SendMessageW, SetForegroundWindow, SetWindowPos, SetWindowTextW, ShowWindow, WINDOW_EX_STYLE,
+    WINDOW_STYLE, WM_APP, WM_CLOSE, WM_COMMAND, WM_CTLCOLORBTN, WM_CTLCOLOREDIT, WM_CTLCOLORSTATIC,
+    WM_DESTROY, WM_DPICHANGED, WM_ERASEBKGND, WM_KEYDOWN, WM_KEYUP, WM_NOTIFY, WM_SETFONT,
+    WM_SETICON, WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSEXW, WS_CAPTION, WS_CHILD, WS_EX_CLIENTEDGE,
+    WS_GROUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
 use windows::core::{Error, HRESULT, PCWSTR, PWSTR, Result, w};
 
@@ -104,6 +107,8 @@ const ID_TEST_HOTKEY: i32 = 999;
 
 const WM_APP_RECORDER_KEY: u32 = WM_APP + 30;
 
+const LISTVIEW_SUBCLASS_ID: usize = 1;
+
 const DUMMY_VK: u16 = 0xFF;
 const DUMMY_KEY_MAGIC: usize = 0x5745_4354;
 
@@ -158,6 +163,7 @@ thread_local! {
     static HOOK: Cell<Option<windows::Win32::UI::WindowsAndMessaging::HHOOK>> = const { Cell::new(None) };
     static HOOK_PHASE: Cell<HookPhase> = const { Cell::new(HookPhase::Idle) };
     static CLASS_REGISTERED: Cell<bool> = const { Cell::new(false) };
+    static HEADER_TEXT: Cell<Option<COLORREF>> = const { Cell::new(None) };
 }
 
 pub fn open() {
@@ -242,6 +248,12 @@ fn create_window() -> Result<()> {
         let placeholder_list_h = scale(200, dpi);
         let hwnds = create_controls(main, font, dpi, placeholder_list_h)?;
         HWNDS.with(|c| c.set(Some(hwnds)));
+        let _ = SetWindowSubclass(
+            hwnds.listview,
+            Some(listview_subclass),
+            LISTVIEW_SUBCLASS_ID,
+            0,
+        );
 
         fit_window_to_list(&hwnds, dpi, None);
 
@@ -320,8 +332,9 @@ fn set_window_icons(hwnd: HWND) {
 // Dark/light theming for the standard controls: SetWindowTheme flips the
 // ListView, buttons and checkboxes (and the ListView's own scrollbars) to
 // the dark visual style; the ListView's header is a separate child window
-// and needs its own theme name. Re-run on every WM_APP_THEME_CHANGED so a
-// live theme switch is picked up without reopening the window.
+// and needs its own theme name, plus its text color from listview_subclass.
+// Re-run on every WM_APP_THEME_CHANGED so a live theme switch is picked up
+// without reopening the window.
 fn apply_dark_mode(h: &Hwnds) {
     let dark = theme::current_mode() == theme::Mode::Dark;
     let sub_app = if dark {
@@ -363,6 +376,7 @@ fn apply_dark_mode(h: &Hwnds) {
         let palette = theme::themed_palette(theme::current_mode());
         let bg = colorref(palette.bg);
         let text = colorref(palette.text);
+        HEADER_TEXT.with(|c| c.set(dark.then_some(text)));
         SendMessageW(
             h.listview,
             windows::Win32::UI::Controls::LVM_SETBKCOLOR,
@@ -382,6 +396,34 @@ fn apply_dark_mode(h: &Hwnds) {
             Some(LPARAM(text.0 as isize)),
         );
     }
+}
+
+// The header is a child of the ListView, so its NM_CUSTOMDRAW arrives here
+// rather than at the main window.
+unsafe extern "system" fn listview_subclass(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+    _id: usize,
+    _data: usize,
+) -> LRESULT {
+    if msg == WM_NOTIFY
+        && let Some(text) = HEADER_TEXT.with(|c| c.get())
+    {
+        let nmhdr = unsafe { &*(lparam.0 as *const NMHDR) };
+        if nmhdr.code == NM_CUSTOMDRAW && unsafe { GetParent(nmhdr.hwndFrom) }.ok() == Some(hwnd) {
+            let draw = unsafe { &*(lparam.0 as *const NMCUSTOMDRAW) };
+            if draw.dwDrawStage == CDDS_PREPAINT {
+                return LRESULT(CDRF_NOTIFYITEMDRAW as isize);
+            }
+            if draw.dwDrawStage == CDDS_ITEMPREPAINT {
+                unsafe { SetTextColor(draw.hdc, text) };
+                return LRESULT(CDRF_DODEFAULT as isize);
+            }
+        }
+    }
+    unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
 }
 
 fn make_font(dpi: u32) -> windows::Win32::Graphics::Gdi::HFONT {
@@ -1593,7 +1635,12 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                         }))
                     });
                     let _ = DeleteObject(old.into());
-                    let _ = InvalidateRect(Some(h.main), None, true);
+                    let _ = RedrawWindow(
+                        Some(h.main),
+                        None,
+                        None,
+                        RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN,
+                    );
                 }
             }
             LRESULT(0)
@@ -1634,6 +1681,13 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         }
         WM_DESTROY => {
             if let Some(h) = HWNDS.with(|c| c.take()) {
+                unsafe {
+                    let _ = RemoveWindowSubclass(
+                        h.listview,
+                        Some(listview_subclass),
+                        LISTVIEW_SUBCLASS_ID,
+                    );
+                }
                 if STAGED.with(|s| {
                     s.borrow()
                         .as_ref()
