@@ -92,7 +92,6 @@ pub fn set_enabled(enabled: bool) -> windows::core::Result<()> {
     }
 }
 
-/// Flips the current state and returns the new state.
 pub fn toggle() -> windows::core::Result<bool> {
     let enabled = !is_enabled();
     set_enabled(enabled)?;

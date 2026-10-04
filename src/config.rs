@@ -9,7 +9,6 @@ use crate::shortcut::{self, Shortcut};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseSizeError;
 
-/// Parses a size entry such as "2/7" or "40%" into a fraction in (0, 1].
 pub fn parse_size(input: &str) -> Result<f64, ParseSizeError> {
     let input = input.trim();
     let fraction = if let Some(percent) = input.strip_suffix('%') {
@@ -178,7 +177,7 @@ fn resolve(file: ConfigFile) -> Option<Config> {
         bottom_left: resolve_shortcut(sf.bottom_left, "Ctrl+Alt+V")?,
         bottom_right: resolve_shortcut(sf.bottom_right, "Ctrl+Alt+B")?,
         maximize: resolve_shortcut(sf.maximize, "Ctrl+Alt+Enter")?,
-        center: resolve_shortcut(sf.center, "Ctrl+Alt+Space")?,
+        center: resolve_shortcut(sf.center, "Ctrl+Alt+Home")?,
         next_display: resolve_shortcut(sf.next_display, "Ctrl+Alt+Win+Right")?,
         previous_display: resolve_shortcut(sf.previous_display, "Ctrl+Alt+Win+Left")?,
     };
@@ -206,7 +205,6 @@ fn format_opt(shortcut: &Option<Shortcut>) -> String {
     }
 }
 
-/// Serializes a config as strict, pretty-printed JSON.
 pub fn to_json_string(config: &Config) -> String {
     let file = ConfigFile {
         sizes: Some(config.sizes.clone()),
@@ -233,8 +231,6 @@ pub fn config_path() -> PathBuf {
     Path::new(&appdata).join("Wectangle").join("config.json")
 }
 
-/// Loads config.json from disk. An unreadable or missing file is reported
-/// as `Source::Missing` so the caller can decide to create it.
 pub fn load(path: &Path) -> (Config, Source) {
     match fs::read_to_string(path) {
         Ok(text) => load_from_str(&text),
@@ -242,7 +238,6 @@ pub fn load(path: &Path) -> (Config, Source) {
     }
 }
 
-/// Writes config.json, creating the parent directory if needed.
 pub fn save(path: &Path, config: &Config) -> std::io::Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -312,7 +307,7 @@ mod tests {
         );
         assert_eq!(
             config.shortcuts.center,
-            shortcut::parse("Ctrl+Alt+Space").ok()
+            shortcut::parse("Ctrl+Alt+Home").ok()
         );
         assert_eq!(
             config.shortcuts.next_display,

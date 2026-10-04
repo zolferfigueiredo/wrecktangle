@@ -29,8 +29,16 @@ const CYCLE_TOLERANCE: i32 = 2;
 
 pub enum ActionResult {
     Applied,
+    NoOp,
     NoTarget,
     AdminBlocked,
+    Failed,
+}
+
+enum MoveOutcome {
+    Moved,
+    NoOp,
+    Failed,
 }
 
 pub fn apply_action(action: Action, config: &Config) -> ActionResult {
@@ -43,7 +51,7 @@ pub fn apply_action(action: Action, config: &Config) -> ActionResult {
         return ActionResult::AdminBlocked;
     }
 
-    let ok = match action {
+    let outcome = match action {
         Action::Maximize => toggle_maximize(hwnd),
         Action::Center => apply_center(hwnd),
         Action::NextDisplay => move_display(hwnd, config, true),
@@ -51,14 +59,14 @@ pub fn apply_action(action: Action, config: &Config) -> ActionResult {
         _ => apply_directional(hwnd, action, config),
     };
 
-    if !ok && elevated.is_none() {
-        return ActionResult::AdminBlocked;
+    match outcome {
+        MoveOutcome::Moved => ActionResult::Applied,
+        MoveOutcome::NoOp => ActionResult::NoOp,
+        MoveOutcome::Failed if elevated.is_none() => ActionResult::AdminBlocked,
+        MoveOutcome::Failed => ActionResult::Failed,
     }
-    ActionResult::Applied
 }
 
-// The window a shortcut acts on: the foreground window's top-level ancestor,
-// filtered to exclude anything a user could not sensibly want moved.
 fn foreground_target() -> Option<HWND> {
     unsafe {
         let fg = GetForegroundWindow();
@@ -100,7 +108,11 @@ fn is_eligible(hwnd: HWND) -> bool {
         let class = class_name(hwnd);
         !matches!(
             class.as_str(),
-            "Progman" | "WorkerW" | "Shell_TrayWnd" | "Shell_SecondaryTrayWnd"
+            "Progman"
+                | "WorkerW"
+                | "Shell_TrayWnd"
+                | "Shell_SecondaryTrayWnd"
+                | "Windows.UI.Core.CoreWindow"
         )
     }
 }
@@ -168,17 +180,45 @@ fn move_to_frame(hwnd: HWND, target: Rect) -> bool {
     }
 }
 
-fn apply_directional(hwnd: HWND, action: Action, config: &Config) -> bool {
+// Applies target, then re-reads the frame. A mismatch there is retried with
+// the same target and fresh insets once, since a cross-monitor move can
+// trigger WM_DPICHANGED and resize the window on its own. Only a mismatch
+// that survives the retry is treated as the app enforcing its own size, and
+// gets the recompute callback (reanchor or recenter) instead of another
+// identical attempt.
+fn settle_frame(hwnd: HWND, target: Rect, recompute: impl Fn(i32, i32) -> Rect) -> bool {
+    let mut ok = move_to_frame(hwnd, target);
+    let mut verified = match get_frame_and_insets(hwnd) {
+        Some((v, _)) => v,
+        None => return ok,
+    };
+
+    if verified != target {
+        ok = move_to_frame(hwnd, target) && ok;
+        verified = match get_frame_and_insets(hwnd) {
+            Some((v, _)) => v,
+            None => return ok,
+        };
+    }
+
+    if verified.w != target.w || verified.h != target.h {
+        let corrected = recompute(verified.w, verified.h);
+        ok = move_to_frame(hwnd, corrected) && ok;
+    }
+    ok
+}
+
+fn apply_directional(hwnd: HWND, action: Action, config: &Config) -> MoveOutcome {
     let Some(monitor) = find_monitor(hwnd) else {
-        return false;
+        return MoveOutcome::Failed;
     };
     let work = monitor.work;
     let sizes = config.size_fractions();
     if sizes.is_empty() {
-        return false;
+        return MoveOutcome::Failed;
     }
     let Some((current_frame, _)) = get_frame_and_insets(hwnd) else {
-        return false;
+        return MoveOutcome::Failed;
     };
 
     let index = layout::next_cycle_index(
@@ -196,45 +236,41 @@ fn apply_directional(hwnd: HWND, action: Action, config: &Config) -> bool {
         }
     }
 
-    let mut ok = move_to_frame(hwnd, target);
+    let ok = settle_frame(hwnd, target, |w, h| layout::reanchor(action, w, h, work));
 
-    if let Some((verified, _)) = get_frame_and_insets(hwnd) {
-        if verified.w != target.w || verified.h != target.h {
-            let corrected = layout::reanchor(action, verified.w, verified.h, work);
-            ok = move_to_frame(hwnd, corrected) && ok;
-        }
-        if let Some((final_frame, _)) = get_frame_and_insets(hwnd) {
-            cycle_state::set(hwnd, action, index, final_frame);
-        }
+    if let Some((final_frame, _)) = get_frame_and_insets(hwnd) {
+        cycle_state::set(hwnd, action, index, final_frame);
     }
-    ok
+    if ok {
+        MoveOutcome::Moved
+    } else {
+        MoveOutcome::Failed
+    }
 }
 
-fn apply_center(hwnd: HWND) -> bool {
+fn apply_center(hwnd: HWND) -> MoveOutcome {
     let Some(monitor) = find_monitor(hwnd) else {
-        return false;
+        return MoveOutcome::Failed;
     };
     let work = monitor.work;
     let Some((current_frame, _)) = get_frame_and_insets(hwnd) else {
-        return false;
+        return MoveOutcome::Failed;
     };
 
     let target = layout::center(current_frame.w, current_frame.h, work);
-    let mut ok = move_to_frame(hwnd, target);
+    let ok = settle_frame(hwnd, target, |w, h| layout::center(w, h, work));
 
-    if let Some((verified, _)) = get_frame_and_insets(hwnd) {
-        if verified.w != target.w || verified.h != target.h {
-            let corrected = layout::center(verified.w, verified.h, work);
-            ok = move_to_frame(hwnd, corrected) && ok;
-        }
-        if let Some((final_frame, _)) = get_frame_and_insets(hwnd) {
-            cycle_state::set(hwnd, Action::Center, 0, final_frame);
-        }
+    if let Some((final_frame, _)) = get_frame_and_insets(hwnd) {
+        cycle_state::set(hwnd, Action::Center, 0, final_frame);
     }
-    ok
+    if ok {
+        MoveOutcome::Moved
+    } else {
+        MoveOutcome::Failed
+    }
 }
 
-fn toggle_maximize(hwnd: HWND) -> bool {
+fn toggle_maximize(hwnd: HWND) -> MoveOutcome {
     unsafe {
         if IsZoomed(hwnd).as_bool() {
             let _ = ShowWindow(hwnd, SW_RESTORE);
@@ -242,21 +278,21 @@ fn toggle_maximize(hwnd: HWND) -> bool {
             let _ = ShowWindow(hwnd, SW_MAXIMIZE);
         }
     }
-    true
+    MoveOutcome::Moved
 }
 
-fn move_display(hwnd: HWND, config: &Config, forward: bool) -> bool {
+fn move_display(hwnd: HWND, config: &Config, forward: bool) -> MoveOutcome {
     let monitors = enumerate_monitors();
     if monitors.len() < 2 {
-        return false;
+        return MoveOutcome::NoOp;
     }
     let current_handle = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST) };
     let Some(current_index) = monitors.iter().position(|m| m.handle == current_handle) else {
-        return false;
+        return MoveOutcome::NoOp;
     };
     let target_index = layout::wrap_monitor_index(current_index, monitors.len(), forward);
     if target_index == current_index {
-        return false;
+        return MoveOutcome::NoOp;
     }
 
     let source_work = monitors[current_index].work;
@@ -271,7 +307,7 @@ fn move_display(hwnd: HWND, config: &Config, forward: bool) -> bool {
     }
 
     let Some((current_frame, _)) = get_frame_and_insets(hwnd) else {
-        return false;
+        return MoveOutcome::Failed;
     };
 
     let remembered: Option<(Action, usize)> = match cycle_state::get(hwnd) {
@@ -295,17 +331,10 @@ fn move_display(hwnd: HWND, config: &Config, forward: bool) -> bool {
         None => layout::scale_to_monitor(current_frame, source_work, target_work, dpi_ratio),
     };
 
-    let mut ok = move_to_frame(hwnd, target);
-
-    if let Some((verified, _)) = get_frame_and_insets(hwnd)
-        && (verified.w != target.w || verified.h != target.h)
-    {
-        let corrected = match remembered {
-            Some((Action::Center, _)) | None => layout::center(verified.w, verified.h, target_work),
-            Some((action, _)) => layout::reanchor(action, verified.w, verified.h, target_work),
-        };
-        ok = move_to_frame(hwnd, corrected) && ok;
-    }
+    let ok = settle_frame(hwnd, target, |w, h| match remembered {
+        Some((Action::Center, _)) | None => layout::center(w, h, target_work),
+        Some((action, _)) => layout::reanchor(action, w, h, target_work),
+    });
 
     if was_maximized {
         unsafe {
@@ -320,7 +349,11 @@ fn move_display(hwnd: HWND, config: &Config, forward: bool) -> bool {
         _ => cycle_state::clear(hwnd),
     }
 
-    ok
+    if ok {
+        MoveOutcome::Moved
+    } else {
+        MoveOutcome::Failed
+    }
 }
 
 pub struct MonitorInfo {

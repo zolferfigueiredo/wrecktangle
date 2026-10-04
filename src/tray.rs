@@ -75,7 +75,6 @@ pub fn remove(hwnd: HWND) {
     }
 }
 
-/// Shows a transient balloon notification from the tray icon.
 pub fn notify(hwnd: HWND, title: &str, message: &str) {
     unsafe {
         let mut nid = base_nid(hwnd);

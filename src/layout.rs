@@ -211,7 +211,6 @@ pub fn scale_to_monitor(
     Rect { x, y, w, h }
 }
 
-// Assumes monitors are ordered by (left, top), as the plan requires.
 pub fn wrap_monitor_index(current: usize, count: usize, forward: bool) -> usize {
     if count == 0 {
         return 0;

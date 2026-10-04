@@ -1,3 +1,8 @@
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetKeyboardLayout, MAPVK_VK_TO_VSC, MapVirtualKeyExW, ToUnicodeEx, VK_CONTROL, VK_MENU,
+};
+use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Shortcut {
     pub ctrl: bool,
@@ -79,8 +84,6 @@ fn lookup_name(vk: u16) -> Option<String> {
         .map(|(name, _)| name)
 }
 
-/// Parses a shortcut string such as "Ctrl+Alt+Win+Right", case-insensitive.
-/// Requires exactly one key token and at least one of Ctrl, Alt or Win.
 pub fn parse(input: &str) -> Result<Shortcut, ParseShortcutError> {
     let mut ctrl = false;
     let mut alt = false;
@@ -121,8 +124,6 @@ pub fn parse(input: &str) -> Result<Shortcut, ParseShortcutError> {
     })
 }
 
-/// Formats a shortcut back to canonical form: Ctrl, Alt, Shift, Win, then
-/// the key name.
 pub fn format(shortcut: &Shortcut) -> String {
     let mut parts = Vec::with_capacity(5);
     if shortcut.ctrl {
@@ -139,6 +140,40 @@ pub fn format(shortcut: &Shortcut) -> String {
     }
     parts.push(lookup_name(shortcut.vk).unwrap_or_else(|| format!("VK_{:#X}", shortcut.vk)));
     parts.join("+")
+}
+
+// On the US-International layout, Ctrl+Alt is the same chord as AltGr, so a
+// Ctrl+Alt+<key> hotkey can block that key from typing its AltGr character
+// anywhere else. wFlags 0x4 keeps ToUnicodeEx from disturbing dead-key state.
+pub fn altgr_char(shortcut: &Shortcut) -> Option<char> {
+    if !(shortcut.ctrl && shortcut.alt) || shortcut.shift || shortcut.win {
+        return None;
+    }
+    unsafe {
+        let foreground = GetForegroundWindow();
+        let thread_id = GetWindowThreadProcessId(foreground, None);
+        let layout = GetKeyboardLayout(thread_id);
+
+        let mut state = [0u8; 256];
+        state[VK_CONTROL.0 as usize] = 0x80;
+        state[VK_MENU.0 as usize] = 0x80;
+
+        let scan = MapVirtualKeyExW(shortcut.vk as u32, MAPVK_VK_TO_VSC, Some(layout));
+        let mut buf = [0u16; 8];
+        let result = ToUnicodeEx(
+            shortcut.vk as u32,
+            scan,
+            &state,
+            &mut buf,
+            0x4,
+            Some(layout),
+        );
+        if result >= 1 {
+            char::from_u32(buf[0] as u32)
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(test)]

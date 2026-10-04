@@ -17,7 +17,7 @@ use windows::core::w;
 
 use crate::config::{self, Config};
 use crate::layout::Action;
-use crate::shortcut::{self, Shortcut};
+use crate::shortcut::Shortcut;
 use crate::{tray, window_ops};
 
 pub const WINDOW_CLASS_NAME: PCWSTR = w!("WectangleMainWindow");
@@ -25,17 +25,18 @@ pub const WM_APP_TRAY: u32 = WM_APP + 1;
 pub const WM_APP_OPEN_SETTINGS: u32 = WM_APP + 2;
 
 struct State {
+    hwnd: HWND,
     config: Config,
     hotkeys: HashMap<i32, Action>,
+    registration_failed: Vec<Action>,
     taskbar_created: u32,
+    admin_notice_shown: bool,
 }
 
 thread_local! {
     static STATE: RefCell<Option<State>> = const { RefCell::new(None) };
 }
 
-/// Creates the hidden main window, loads config, registers hotkeys and adds
-/// the tray icon. Returns the window handle for the caller's message loop.
 pub fn init() -> windows::core::Result<HWND> {
     unsafe {
         let hinstance = GetModuleHandleW(None)?;
@@ -79,13 +80,16 @@ pub fn init() -> windows::core::Result<HWND> {
 
         STATE.with(|s| {
             *s.borrow_mut() = Some(State {
+                hwnd,
                 config,
                 hotkeys: HashMap::new(),
+                registration_failed: Vec::new(),
                 taskbar_created,
+                admin_notice_shown: false,
             });
         });
 
-        let failed = register_hotkeys(hwnd);
+        let failed = register_all(hwnd);
         tray::add(hwnd)?;
 
         if source == config::Source::Invalid {
@@ -96,15 +100,65 @@ pub fn init() -> windows::core::Result<HWND> {
             );
         }
         if !failed.is_empty() {
-            tray::notify(
-                hwnd,
-                "Wectangle",
-                &format!("Already in use by another app: {}", failed.join(", ")),
-            );
+            tray::notify(hwnd, "Wectangle", &failed_message(&failed));
         }
 
         Ok(hwnd)
     }
+}
+
+pub fn main_hwnd() -> HWND {
+    STATE.with(|s| s.borrow().as_ref().expect("state initialized").hwnd)
+}
+
+pub fn current_config() -> Config {
+    STATE.with(|s| {
+        s.borrow()
+            .as_ref()
+            .map(|st| st.config.clone())
+            .unwrap_or_else(Config::defaults)
+    })
+}
+
+pub fn registration_failed() -> Vec<Action> {
+    STATE.with(|s| {
+        s.borrow()
+            .as_ref()
+            .map(|st| st.registration_failed.clone())
+            .unwrap_or_default()
+    })
+}
+
+pub fn suspend_hotkeys() {
+    unregister_all(main_hwnd());
+}
+
+pub fn resume_hotkeys() -> Vec<Action> {
+    register_all(main_hwnd())
+}
+
+pub fn apply_new_config(new_config: Config) -> Vec<Action> {
+    let hwnd = main_hwnd();
+    let _ = config::save(&config::config_path(), &new_config);
+    unregister_all(hwnd);
+    STATE.with(|s| {
+        if let Some(state) = s.borrow_mut().as_mut() {
+            state.config = new_config;
+        }
+    });
+    register_all(hwnd)
+}
+
+fn failed_message(failed: &[Action]) -> String {
+    let config = current_config();
+    let names: Vec<String> = failed
+        .iter()
+        .map(|&action| match config.shortcuts.get(action) {
+            Some(sc) => format!("{} ({})", action.label(), crate::shortcut::format(&sc)),
+            None => action.label().to_string(),
+        })
+        .collect();
+    format!("Already in use by another app: {}", names.join(", "))
 }
 
 fn modifiers_for(sc: &Shortcut) -> HOT_KEY_MODIFIERS {
@@ -124,45 +178,77 @@ fn modifiers_for(sc: &Shortcut) -> HOT_KEY_MODIFIERS {
     m
 }
 
-// Called only during init, before the message loop runs, so no re-entrancy
-// concern arises from registering while holding the state borrow.
-fn register_hotkeys(hwnd: HWND) -> Vec<String> {
-    STATE.with(|s| {
-        let mut st = s.borrow_mut();
-        let state = st
-            .as_mut()
-            .expect("state initialized before register_hotkeys");
-        let mut hotkeys = HashMap::new();
-        let mut failed = Vec::new();
+// Copies out what to register before calling RegisterHotKey, and only takes
+// the borrow again afterward to store the results, per the re-entrancy rule.
+fn register_all(hwnd: HWND) -> Vec<Action> {
+    let entries: Vec<(i32, Action, Shortcut)> = STATE.with(|s| {
+        let st = s.borrow();
+        let state = st.as_ref().expect("state initialized");
+        state
+            .config
+            .shortcuts
+            .entries()
+            .into_iter()
+            .enumerate()
+            .filter_map(|(index, (action, shortcut))| {
+                shortcut.map(|sc| ((index + 1) as i32, action, sc))
+            })
+            .collect()
+    });
 
-        for (index, (action, shortcut)) in state.config.shortcuts.entries().into_iter().enumerate()
-        {
-            let Some(sc) = shortcut else { continue };
-            let id = (index + 1) as i32;
-            let modifiers = modifiers_for(&sc);
-            let registered = unsafe { RegisterHotKey(Some(hwnd), id, modifiers, sc.vk as u32) };
-            if registered.is_ok() {
-                hotkeys.insert(id, action);
-            } else {
-                failed.push(format!("{} ({})", action.label(), shortcut::format(&sc)));
-            }
+    let mut hotkeys = HashMap::new();
+    let mut failed = Vec::new();
+    for (id, action, sc) in entries {
+        let modifiers = modifiers_for(&sc);
+        let registered = unsafe { RegisterHotKey(Some(hwnd), id, modifiers, sc.vk as u32) };
+        if registered.is_ok() {
+            hotkeys.insert(id, action);
+        } else {
+            failed.push(action);
         }
+    }
 
-        state.hotkeys = hotkeys;
-        failed
-    })
-}
-
-fn unregister_hotkeys(hwnd: HWND) {
     STATE.with(|s| {
-        if let Some(state) = s.borrow().as_ref() {
-            for id in state.hotkeys.keys() {
-                unsafe {
-                    let _ = UnregisterHotKey(Some(hwnd), *id);
-                }
-            }
+        if let Some(state) = s.borrow_mut().as_mut() {
+            state.hotkeys = hotkeys;
+            state.registration_failed = failed.clone();
         }
     });
+
+    failed
+}
+
+fn unregister_all(hwnd: HWND) {
+    let ids: Vec<i32> = STATE.with(|s| {
+        s.borrow()
+            .as_ref()
+            .map(|state| state.hotkeys.keys().copied().collect())
+            .unwrap_or_default()
+    });
+    for id in ids {
+        unsafe {
+            let _ = UnregisterHotKey(Some(hwnd), id);
+        }
+    }
+    STATE.with(|s| {
+        if let Some(state) = s.borrow_mut().as_mut() {
+            state.hotkeys.clear();
+        }
+    });
+}
+
+// True if this is the first admin-blocked notification this session; also
+// marks it shown, so the caller knows whether to notify without a second
+// borrow.
+fn mark_admin_notice_shown() -> bool {
+    STATE.with(|s| match s.borrow_mut().as_mut() {
+        Some(state) => {
+            let already = state.admin_notice_shown;
+            state.admin_notice_shown = true;
+            already
+        }
+        None => true,
+    })
 }
 
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -177,6 +263,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             if let (Some(action), Some(config)) = (action, config)
                 && let window_ops::ActionResult::AdminBlocked =
                     window_ops::apply_action(action, &config)
+                && !mark_admin_notice_shown()
             {
                 tray::notify(
                     hwnd,
@@ -195,7 +282,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_DESTROY => {
-            unregister_hotkeys(hwnd);
+            unregister_all(hwnd);
             tray::remove(hwnd);
             unsafe {
                 PostQuitMessage(0);
