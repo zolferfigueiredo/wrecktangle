@@ -7,18 +7,19 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
-    # Local cold run (cargo clean, then clippy + test + release) measured
-    # ~35s on this machine.
+    runs-on: ubuntu-latest
+    # No Linux measurement yet; raise only if a real run needs it.
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7.0.1
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
+      - run: rustup target add x86_64-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test
-      - run: cargo build --release
+      - run: cargo clippy --target x86_64-pc-windows-gnu --all-targets -- -D warnings
+      - run: cargo build --release --target x86_64-pc-windows-gnu
       - uses: actions/upload-artifact@v7.0.1
         with:
           name: wectangle
-          path: target/release/wectangle.exe
+          path: target/x86_64-pc-windows-gnu/release/wectangle.exe

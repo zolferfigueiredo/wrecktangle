@@ -1,22 +1,35 @@
 #![windows_subsystem = "windows"]
+// Off Windows, the pure modules (config, layout, shortcut) are only
+// exercised by `cargo test`; nothing else in the crate calls them there.
+#![cfg_attr(not(windows), allow(dead_code))]
 
+#[cfg(windows)]
 mod app;
 mod config;
 mod layout;
+#[cfg(windows)]
 mod settings;
 mod shortcut;
+#[cfg(windows)]
 mod startup;
+#[cfg(windows)]
 mod tray;
+#[cfg(windows)]
 mod window_ops;
 
+#[cfg(windows)]
 use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, LPARAM, WPARAM};
+#[cfg(windows)]
 use windows::Win32::System::Threading::CreateMutexW;
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, DispatchMessageW, FindWindowW, GetMessageW, GetWindowThreadProcessId,
     IsDialogMessageW, MSG, PostMessageW, TranslateMessage,
 };
+#[cfg(windows)]
 use windows::core::w;
 
+#[cfg(windows)]
 fn main() {
     unsafe {
         let mutex = CreateMutexW(None, true, w!("Local\\Wectangle.SingleInstance"));
@@ -60,3 +73,6 @@ fn main() {
         }
     }
 }
+
+#[cfg(not(windows))]
+fn main() {}

@@ -1,7 +1,9 @@
+#[cfg(windows)]
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     GetKeyboardLayout, HOT_KEY_MODIFIERS, MAPVK_VK_TO_VSC, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT,
     MOD_SHIFT, MOD_WIN, MapVirtualKeyExW, ToUnicodeEx, VK_CONTROL, VK_MENU,
 };
+#[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -147,6 +149,7 @@ pub fn key_name(shortcut: &Shortcut) -> String {
     lookup_name(shortcut.vk).unwrap_or_else(|| format!("VK_{:#X}", shortcut.vk))
 }
 
+#[cfg(windows)]
 pub fn hotkey_modifiers(shortcut: &Shortcut) -> HOT_KEY_MODIFIERS {
     let mut m = MOD_NOREPEAT;
     if shortcut.ctrl {
@@ -167,6 +170,7 @@ pub fn hotkey_modifiers(shortcut: &Shortcut) -> HOT_KEY_MODIFIERS {
 // On the US-International layout, Ctrl+Alt is the same chord as AltGr, so a
 // Ctrl+Alt+<key> hotkey can block that key from typing its AltGr character
 // anywhere else. wFlags 0x4 keeps ToUnicodeEx from disturbing dead-key state.
+#[cfg(windows)]
 pub fn altgr_char(shortcut: &Shortcut) -> Option<char> {
     if !(shortcut.ctrl && shortcut.alt) || shortcut.shift || shortcut.win {
         return None;
