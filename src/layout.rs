@@ -63,20 +63,20 @@ impl Action {
         Action::PreviousDisplay,
     ];
 
-    pub fn label(&self) -> &'static str {
+    pub fn key(&self) -> &'static str {
         match self {
-            Action::Left => "Left side (full height)",
-            Action::Right => "Right side (full height)",
-            Action::Top => "Top (full width)",
-            Action::Bottom => "Bottom (full width)",
-            Action::TopLeft => "Top-left (half height)",
-            Action::TopRight => "Top-right (half height)",
-            Action::BottomLeft => "Bottom-left (half height)",
-            Action::BottomRight => "Bottom-right (half height)",
-            Action::Maximize => "Maximize / restore",
-            Action::Center => "Center",
-            Action::NextDisplay => "Next display",
-            Action::PreviousDisplay => "Previous display",
+            Action::Left => "action.left",
+            Action::Right => "action.right",
+            Action::Top => "action.top",
+            Action::Bottom => "action.bottom",
+            Action::TopLeft => "action.top_left",
+            Action::TopRight => "action.top_right",
+            Action::BottomLeft => "action.bottom_left",
+            Action::BottomRight => "action.bottom_right",
+            Action::Maximize => "action.maximize",
+            Action::Center => "action.center",
+            Action::NextDisplay => "action.next_display",
+            Action::PreviousDisplay => "action.previous_display",
         }
     }
 }
@@ -225,6 +225,15 @@ pub fn wrap_monitor_index(current: usize, count: usize, forward: bool) -> usize 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn action_keys_are_unique_catalog_keys() {
+        let mut seen = std::collections::HashSet::new();
+        for action in Action::ALL {
+            assert!(action.key().starts_with("action."));
+            assert!(seen.insert(action.key()));
+        }
+    }
 
     const MONITOR_0: Rect = Rect {
         x: 0,

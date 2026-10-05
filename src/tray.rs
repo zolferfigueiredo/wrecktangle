@@ -8,7 +8,7 @@ use windows::Win32::UI::Shell::{
     NIM_MODIFY, NIM_SETVERSION, NIN_BALLOONUSERCLICK, NIN_SELECT, NOTIFYICON_VERSION_4,
     NOTIFYICONDATAW, Shell_NotifyIconW,
 };
-use windows::core::{PCWSTR, w};
+use windows::core::PCWSTR;
 
 // Not exposed by this version of the windows crate; matches shellapi.h's
 // NIN_KEYSELECT = (NIN_SELECT | 0x1).
@@ -19,7 +19,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     TrackPopupMenu, WM_CLOSE, WM_CONTEXTMENU, WM_NULL,
 };
 
-use crate::{app, settings, startup, update};
+use crate::{app, lang, settings, startup, update};
 
 const TRAY_ICON_ID: u32 = 1;
 const ID_SETTINGS: u16 = 1001;
@@ -31,6 +31,10 @@ thread_local! {
     // Clicking any balloon sends NIN_BALLOONUSERCLICK, so only the update
     // balloon, when it is the last one shown, may open the download.
     static UPDATE_BALLOON: Cell<bool> = const { Cell::new(false) };
+}
+
+fn to_wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 fn copy_to_buf<const N: usize>(buf: &mut [u16; N], text: &str) {
@@ -135,12 +139,21 @@ fn show_context_menu(hwnd: HWND, x: i32, y: i32) {
             return;
         };
 
-        let _ = AppendMenuW(menu, MF_STRING, ID_SETTINGS as usize, w!("Settings..."));
+        let settings = to_wide(&lang::t("tray.settings"));
+        let check_updates = to_wide(&lang::t("tray.check_updates"));
+        let startup = to_wide(&lang::t("tray.startup"));
+        let quit = to_wide(&lang::t("tray.quit"));
+        let _ = AppendMenuW(
+            menu,
+            MF_STRING,
+            ID_SETTINGS as usize,
+            PCWSTR(settings.as_ptr()),
+        );
         let _ = AppendMenuW(
             menu,
             MF_STRING,
             ID_CHECK_UPDATES as usize,
-            w!("Check for updates..."),
+            PCWSTR(check_updates.as_ptr()),
         );
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let startup_flags = if startup::is_enabled() {
@@ -152,10 +165,10 @@ fn show_context_menu(hwnd: HWND, x: i32, y: i32) {
             menu,
             startup_flags,
             ID_STARTUP as usize,
-            w!("Launch at startup"),
+            PCWSTR(startup.as_ptr()),
         );
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
-        let _ = AppendMenuW(menu, MF_STRING, ID_QUIT as usize, w!("Quit Wectangle"));
+        let _ = AppendMenuW(menu, MF_STRING, ID_QUIT as usize, PCWSTR(quit.as_ptr()));
 
         // TrackPopupMenu needs the window in the foreground, or the menu can
         // fail to dismiss when the user clicks away.

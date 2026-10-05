@@ -1,11 +1,30 @@
-import { Button, LineEdit, Palette, ScrollView, Switch } from "std-widgets.slint";
+import { Button, ComboBox, LineEdit, Palette, ScrollView, Switch } from "std-widgets.slint";
 
 export struct ShortcutRow {
+    label: string,
     keys: [string],
     note: string,
     warn: bool,
     recording: bool,
     hint: string,
+}
+
+struct RowSpec {
+    index: int,
+    fx: float,
+    fy: float,
+    fw: float,
+    fh: float,
+    glyph: int,
+}
+
+export global Tr {
+    pure callback lookup(string, int) -> string;
+    in property <int> revision;
+
+    public pure function t(key: string) -> string {
+        return lookup(key, revision);
+    }
 }
 
 global Ui {
@@ -36,18 +55,19 @@ component Card inherits Rectangle {
 }
 
 component SectionTitle inherits Text {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     color: Palette.foreground;
 }
 
-component PivotItem inherits Rectangle {
+component TabButton inherits Rectangle {
     in property <string> text;
     in property <bool> selected;
     callback activated();
 
-    border-radius: 4px;
-    background: area.has-hover ? Palette.foreground.with-alpha(0.06) : transparent;
+    preferred-width: max(widest.preferred-width, label.preferred-width) + 28px;
+    min-width: self.preferred-width;
+    horizontal-stretch: 0;
 
     focus := FocusScope {
         key-pressed(event) => {
@@ -59,24 +79,29 @@ component PivotItem inherits Rectangle {
         }
     }
 
-    HorizontalLayout {
-        padding-left: 14px;
-        padding-right: 14px;
+    widest := Text {
+        text: root.text;
+        font-size: 14px;
+        font-weight: 700;
+        opacity: 0;
+    }
 
-        Text {
-            text: root.text;
-            font-size: 14px;
-            font-weight: root.selected ? 600 : 400;
-            color: root.selected ? Palette.foreground : Ui.text-secondary;
-            vertical-alignment: center;
-        }
+    label := Text {
+        text: root.text;
+        font-size: 14px;
+        font-weight: root.selected ? 700 : 400;
+        color: root.selected || area.has-hover ? Palette.foreground : Ui.text-secondary;
+        x: (root.width - self.preferred-width) / 2;
+        y: (root.height - self.height) / 2 - 1px;
+        width: self.preferred-width;
+        overflow: clip;
     }
 
     Rectangle {
         visible: root.selected;
-        x: (parent.width - self.width) / 2;
-        y: parent.height - 5px;
-        width: 18px;
+        x: label.x;
+        y: root.height - self.height;
+        width: label.width;
         height: 3px;
         border-radius: 1.5px;
         background: Palette.accent-background;
@@ -89,9 +114,47 @@ component PivotItem inherits Rectangle {
     }
 
     area := TouchArea {
+        mouse-cursor: pointer;
         clicked => {
-            focus.focus();
             root.activated();
+        }
+    }
+}
+
+component Link inherits Rectangle {
+    in property <string> text;
+    in property <string> url;
+    callback open(string);
+
+    focus := FocusScope {
+        key-pressed(event) => {
+            if (event.text == Key.Return || event.text == " ") {
+                root.open(root.url);
+                return accept;
+            }
+            return reject;
+        }
+    }
+
+    HorizontalLayout {
+        Text {
+            text: root.text;
+            font-size: 13px;
+            color: Palette.accent-background;
+        }
+    }
+
+    Rectangle {
+        visible: area.has-hover || focus.has-focus;
+        y: parent.height - 2px;
+        height: 1px;
+        background: Palette.accent-background;
+    }
+
+    area := TouchArea {
+        mouse-cursor: pointer;
+        clicked => {
+            root.open(root.url);
         }
     }
 }
@@ -103,18 +166,18 @@ component LayoutIcon inherits Rectangle {
     in property <float> fh;
     in property <int> glyph;
 
-    width: 30px;
-    height: 22px;
+    width: 26px;
+    height: 18px;
     border-radius: 3px;
     border-width: 1.5px;
     border-color: Palette.foreground.with-alpha(0.5);
     background: Palette.foreground.with-alpha(0.04);
 
     if root.glyph == 0: Rectangle {
-        x: 3px + (root.width - 6px) * root.fx;
-        y: 3px + (root.height - 6px) * root.fy;
-        width: (root.width - 6px) * root.fw;
-        height: (root.height - 6px) * root.fh;
+        x: 2.5px + (root.width - 5px) * root.fx;
+        y: 2.5px + (root.height - 5px) * root.fy;
+        width: (root.width - 5px) * root.fw;
+        height: (root.height - 5px) * root.fh;
         border-radius: 1.5px;
         background: Palette.accent-background;
     }
@@ -122,13 +185,13 @@ component LayoutIcon inherits Rectangle {
     if root.glyph == 1: Path {
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2;
-        width: 7px;
-        height: 12px;
-        viewbox-width: 7;
-        viewbox-height: 12;
-        commands: "M 1.5 1.5 L 5.5 6 L 1.5 10.5";
+        width: 6px;
+        height: 10px;
+        viewbox-width: 6;
+        viewbox-height: 10;
+        commands: "M 1.3 1.3 L 4.7 5 L 1.3 8.7";
         stroke: Palette.accent-background;
-        stroke-width: 2px;
+        stroke-width: 1.8px;
         stroke-line-cap: round;
         stroke-line-join: round;
     }
@@ -136,13 +199,13 @@ component LayoutIcon inherits Rectangle {
     if root.glyph == 2: Path {
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2;
-        width: 7px;
-        height: 12px;
-        viewbox-width: 7;
-        viewbox-height: 12;
-        commands: "M 5.5 1.5 L 1.5 6 L 5.5 10.5";
+        width: 6px;
+        height: 10px;
+        viewbox-width: 6;
+        viewbox-height: 10;
+        commands: "M 4.7 1.3 L 1.3 5 L 4.7 8.7";
         stroke: Palette.accent-background;
-        stroke-width: 2px;
+        stroke-width: 1.8px;
         stroke-line-cap: round;
         stroke-line-join: round;
     }
@@ -151,21 +214,21 @@ component LayoutIcon inherits Rectangle {
 component KeyChip inherits Rectangle {
     in property <string> text;
 
-    min-width: 26px;
-    border-radius: 4px;
+    min-width: 22px;
+    border-radius: 3px;
     border-width: 1px;
     border-color: Palette.foreground.with-alpha(0.14);
     background: Palette.foreground.with-alpha(0.07);
 
     HorizontalLayout {
-        padding-left: 7px;
-        padding-right: 7px;
-        padding-top: 3px;
-        padding-bottom: 3px;
+        padding-left: 6px;
+        padding-right: 6px;
+        padding-top: 2px;
+        padding-bottom: 2px;
 
         Text {
             text: root.text;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 600;
             color: Palette.foreground;
             horizontal-alignment: center;
@@ -179,7 +242,7 @@ component ShortcutPill inherits Rectangle {
     in property <bool> recording;
     callback activated();
 
-    border-radius: 6px;
+    border-radius: 5px;
     border-width: root.recording ? 2px : 1px;
     border-color: root.recording ? Palette.accent-background : Palette.foreground.with-alpha(0.14);
     background: root.recording ? Palette.accent-background.with-alpha(0.12) : (area.has-hover ? Palette.foreground.with-alpha(0.09) : Palette.foreground.with-alpha(0.04));
@@ -195,28 +258,28 @@ component ShortcutPill inherits Rectangle {
     }
 
     HorizontalLayout {
-        padding-left: 8px;
-        padding-right: 8px;
-        padding-top: 5px;
-        padding-bottom: 5px;
-        spacing: 4px;
+        padding-left: 6px;
+        padding-right: 6px;
+        padding-top: 3px;
+        padding-bottom: 3px;
+        spacing: 3px;
 
         if root.recording: Text {
-            text: "Press a shortcut... (Esc to cancel)";
-            font-size: 12px;
+            text: Tr.t("recorder.prompt");
+            font-size: 11px;
             color: Palette.accent-background;
             vertical-alignment: center;
         }
 
         if !root.recording && root.keys.length == 0: Text {
-            text: "Click to set";
-            font-size: 12px;
+            text: Tr.t("recorder.click_to_set");
+            font-size: 11px;
             color: Ui.text-tertiary;
             vertical-alignment: center;
         }
 
         if !root.recording: HorizontalLayout {
-            spacing: 4px;
+            spacing: 3px;
 
             for key in root.keys: KeyChip {
                 text: key;
@@ -225,14 +288,13 @@ component ShortcutPill inherits Rectangle {
     }
 
     if focus.has-focus && !root.recording: Rectangle {
-        border-radius: 6px;
+        border-radius: 5px;
         border-width: 2px;
         border-color: Palette.accent-background;
     }
 
     area := TouchArea {
         clicked => {
-            focus.focus();
             root.activated();
         }
     }
@@ -241,21 +303,21 @@ component ShortcutPill inherits Rectangle {
 component ClearButton inherits Rectangle {
     callback clicked();
 
-    width: 28px;
-    height: 28px;
+    width: 24px;
+    height: 24px;
     border-radius: 4px;
     background: area.has-hover ? Palette.foreground.with-alpha(0.1) : transparent;
 
     Path {
         x: (root.width - self.width) / 2;
         y: (root.height - self.height) / 2;
-        width: 9px;
-        height: 9px;
-        viewbox-width: 9;
-        viewbox-height: 9;
-        commands: "M 1 1 L 8 8 M 8 1 L 1 8";
+        width: 8px;
+        height: 8px;
+        viewbox-width: 8;
+        viewbox-height: 8;
+        commands: "M 1 1 L 7 7 M 7 1 L 1 7";
         stroke: Ui.text-secondary;
-        stroke-width: 1.4px;
+        stroke-width: 1.3px;
         stroke-line-cap: round;
     }
 
@@ -268,59 +330,54 @@ component ClearButton inherits Rectangle {
 
 component ShortcutRowItem inherits Rectangle {
     in property <ShortcutRow> data;
-    in property <string> label;
-    in property <float> fx;
-    in property <float> fy;
-    in property <float> fw: 1;
-    in property <float> fh: 1;
-    in property <int> glyph;
+    in property <RowSpec> spec;
+    in property <bool> divider;
     callback record();
     callback clear();
 
-    min-height: 58px;
+    min-height: 36px;
 
     HorizontalLayout {
-        padding-left: 16px;
-        padding-right: 10px;
-        padding-top: 8px;
-        padding-bottom: 8px;
-        spacing: 14px;
+        padding-left: 14px;
+        padding-right: 8px;
+        padding-top: 3px;
+        padding-bottom: 3px;
+        spacing: 12px;
 
         VerticalLayout {
             alignment: center;
             horizontal-stretch: 0;
 
             LayoutIcon {
-                fx: root.fx;
-                fy: root.fy;
-                fw: root.fw;
-                fh: root.fh;
-                glyph: root.glyph;
+                fx: root.spec.fx;
+                fy: root.spec.fy;
+                fw: root.spec.fw;
+                fh: root.spec.fh;
+                glyph: root.spec.glyph;
             }
         }
 
         VerticalLayout {
             alignment: center;
             horizontal-stretch: 1;
-            spacing: 1px;
 
             Text {
-                text: root.label;
-                font-size: 14px;
+                text: root.data.label;
+                font-size: 13px;
                 color: Palette.foreground;
                 overflow: elide;
             }
 
             if root.data.recording && root.data.hint != "": Text {
                 text: root.data.hint;
-                font-size: 12px;
+                font-size: 11px;
                 color: Ui.warning;
                 overflow: elide;
             }
 
             if !root.data.recording && root.data.note != "": Text {
                 text: root.data.note;
-                font-size: 12px;
+                font-size: 11px;
                 color: root.data.warn ? Ui.warning : Palette.accent-background;
                 overflow: elide;
             }
@@ -350,8 +407,40 @@ component ShortcutRowItem inherits Rectangle {
             }
 
             if root.data.keys.length == 0 || root.data.recording: Rectangle {
-                width: 28px;
-                height: 28px;
+                width: 24px;
+                height: 24px;
+            }
+        }
+    }
+
+    if root.divider: Divider {
+        y: 0px;
+    }
+}
+
+component ShortcutGroup inherits VerticalLayout {
+    in property <string> title;
+    in property <[RowSpec]> specs;
+    in property <[ShortcutRow]> rows;
+    callback record(int);
+    callback clear(int);
+
+    spacing: 4px;
+
+    SectionTitle {
+        text: root.title;
+    }
+
+    Card {
+        for item[i] in root.specs: ShortcutRowItem {
+            data: root.rows[item.index];
+            spec: item;
+            divider: i > 0;
+            record => {
+                root.record(item.index);
+            }
+            clear => {
+                root.clear(item.index);
             }
         }
     }
@@ -361,13 +450,13 @@ component SettingRow inherits Rectangle {
     in property <string> title;
     in property <string> description;
 
-    min-height: 62px;
+    min-height: 58px;
 
     HorizontalLayout {
         padding-left: 16px;
         padding-right: 16px;
-        padding-top: 10px;
-        padding-bottom: 10px;
+        padding-top: 9px;
+        padding-bottom: 9px;
         spacing: 16px;
 
         VerticalLayout {
@@ -406,27 +495,55 @@ export component SettingsWindow inherits Window {
     in-out property <bool> startup-enabled;
     in-out property <bool> auto-update;
     in property <string> update-status;
+    in property <string> update-detail;
     in property <bool> update-available;
     in property <bool> update-busy;
-    in property <string> version-label;
+    in property <string> about-version;
+    in property <string> ui-font;
+    in property <[string]> language-names;
+    in-out property <int> language-index;
     in property <int> theme-override;
     callback record(int);
     callback clear(int);
     callback cancel-recording();
     callback restore-defaults();
+    callback set-language(int);
     callback apply-sizes(string) -> string;
     callback set-startup(bool);
     callback set-auto-update(bool);
     callback check-now();
     callback download();
+    callback open-url(string);
 
     in-out property <int> page: 0;
 
-    title: "Wectangle Settings";
-    preferred-width: 680px;
-    preferred-height: 760px;
-    min-width: 520px;
-    min-height: 360px;
+    property <[RowSpec]> halves: [
+        { index: 0, fx: 0, fy: 0, fw: 0.5, fh: 1, glyph: 0 },
+        { index: 1, fx: 0.5, fy: 0, fw: 0.5, fh: 1, glyph: 0 },
+        { index: 2, fx: 0, fy: 0, fw: 1, fh: 0.5, glyph: 0 },
+        { index: 3, fx: 0, fy: 0.5, fw: 1, fh: 0.5, glyph: 0 },
+    ];
+    property <[RowSpec]> corners: [
+        { index: 4, fx: 0, fy: 0, fw: 0.5, fh: 0.5, glyph: 0 },
+        { index: 5, fx: 0.5, fy: 0, fw: 0.5, fh: 0.5, glyph: 0 },
+        { index: 6, fx: 0, fy: 0.5, fw: 0.5, fh: 0.5, glyph: 0 },
+        { index: 7, fx: 0.5, fy: 0.5, fw: 0.5, fh: 0.5, glyph: 0 },
+    ];
+    property <[RowSpec]> window-actions: [
+        { index: 8, fx: 0, fy: 0, fw: 1, fh: 1, glyph: 0 },
+        { index: 9, fx: 0.25, fy: 0.2, fw: 0.5, fh: 0.6, glyph: 0 },
+    ];
+    property <[RowSpec]> displays: [
+        { index: 10, fx: 0, fy: 0, fw: 0, fh: 0, glyph: 1 },
+        { index: 11, fx: 0, fy: 0, fw: 0, fh: 0, glyph: 2 },
+    ];
+
+    title: Tr.t("window.title");
+    default-font-family: root.ui-font;
+    preferred-width: 640px;
+    preferred-height: 682px;
+    min-width: 480px;
+    min-height: 320px;
     background: Palette.background;
 
     changed page => {
@@ -443,15 +560,15 @@ export component SettingsWindow inherits Window {
 
     VerticalLayout {
         HorizontalLayout {
-            padding-left: 20px;
-            padding-right: 20px;
-            padding-top: 10px;
-            padding-bottom: 4px;
+            padding-left: 12px;
+            padding-right: 12px;
+            padding-top: 6px;
             spacing: 4px;
             alignment: start;
 
-            PivotItem {
-                text: "Shortcuts";
+            TabButton {
+                height: 34px;
+                text: Tr.t("tab.shortcuts");
                 selected: root.page == 0;
                 activated => {
                     if (root.page == 1) {
@@ -461,11 +578,24 @@ export component SettingsWindow inherits Window {
                 }
             }
 
-            PivotItem {
-                text: "General";
+            TabButton {
+                height: 34px;
+                text: Tr.t("tab.general");
                 selected: root.page == 1;
                 activated => {
                     root.page = 1;
+                }
+            }
+
+            TabButton {
+                height: 34px;
+                text: Tr.t("tab.about");
+                selected: root.page == 2;
+                activated => {
+                    if (root.page == 1) {
+                        root.sizes-error = root.apply-sizes(root.sizes-text);
+                    }
+                    root.page = 2;
                 }
             }
         }
@@ -476,246 +606,71 @@ export component SettingsWindow inherits Window {
             VerticalLayout {
                 padding-left: 24px;
                 padding-right: 24px;
-                padding-top: 20px;
-                padding-bottom: 24px;
-                spacing: 8px;
+                padding-top: 10px;
+                padding-bottom: 12px;
+                spacing: 10px;
                 alignment: start;
 
                 Text {
-                    text: "Keyboard shortcuts";
-                    font-size: 22px;
-                    font-weight: 600;
-                    color: Palette.foreground;
-                }
-
-                Text {
-                    text: "Click a shortcut to record a new one. Repeat a shortcut to cycle through sizes. Changes apply right away.";
-                    font-size: 13px;
+                    text: Tr.t("shortcuts.intro");
+                    font-size: 12px;
                     color: Ui.text-secondary;
                     wrap: word-wrap;
                 }
 
-                Rectangle {
-                    height: 6px;
-                }
-
-                SectionTitle {
-                    text: "Halves";
-                }
-
-                Card {
-                    ShortcutRowItem {
-                        data: root.rows[0];
-                        label: "Left";
-                        fw: 0.5;
-                        record => {
-                            root.record(0);
-                        }
-                        clear => {
-                            root.clear(0);
-                        }
+                ShortcutGroup {
+                    title: Tr.t("group.halves");
+                    specs: root.halves;
+                    rows: root.rows;
+                    record(index) => {
+                        root.record(index);
                     }
-
-                    Divider {}
-
-                    ShortcutRowItem {
-                        data: root.rows[1];
-                        label: "Right";
-                        fx: 0.5;
-                        fw: 0.5;
-                        record => {
-                            root.record(1);
-                        }
-                        clear => {
-                            root.clear(1);
-                        }
-                    }
-
-                    Divider {}
-
-                    ShortcutRowItem {
-                        data: root.rows[2];
-                        label: "Top";
-                        fh: 0.5;
-                        record => {
-                            root.record(2);
-                        }
-                        clear => {
-                            root.clear(2);
-                        }
-                    }
-
-                    Divider {}
-
-                    ShortcutRowItem {
-                        data: root.rows[3];
-                        label: "Bottom";
-                        fy: 0.5;
-                        fh: 0.5;
-                        record => {
-                            root.record(3);
-                        }
-                        clear => {
-                            root.clear(3);
-                        }
+                    clear(index) => {
+                        root.clear(index);
                     }
                 }
 
-                Rectangle {
-                    height: 6px;
-                }
-
-                SectionTitle {
-                    text: "Corners";
-                }
-
-                Card {
-                    ShortcutRowItem {
-                        data: root.rows[4];
-                        label: "Top left";
-                        fw: 0.5;
-                        fh: 0.5;
-                        record => {
-                            root.record(4);
-                        }
-                        clear => {
-                            root.clear(4);
-                        }
+                ShortcutGroup {
+                    title: Tr.t("group.corners");
+                    specs: root.corners;
+                    rows: root.rows;
+                    record(index) => {
+                        root.record(index);
                     }
-
-                    Divider {}
-
-                    ShortcutRowItem {
-                        data: root.rows[5];
-                        label: "Top right";
-                        fx: 0.5;
-                        fw: 0.5;
-                        fh: 0.5;
-                        record => {
-                            root.record(5);
-                        }
-                        clear => {
-                            root.clear(5);
-                        }
-                    }
-
-                    Divider {}
-
-                    ShortcutRowItem {
-                        data: root.rows[6];
-                        label: "Bottom left";
-                        fy: 0.5;
-                        fw: 0.5;
-                        fh: 0.5;
-                        record => {
-                            root.record(6);
-                        }
-                        clear => {
-                            root.clear(6);
-                        }
-                    }
-
-                    Divider {}
-
-                    ShortcutRowItem {
-                        data: root.rows[7];
-                        label: "Bottom right";
-                        fx: 0.5;
-                        fy: 0.5;
-                        fw: 0.5;
-                        fh: 0.5;
-                        record => {
-                            root.record(7);
-                        }
-                        clear => {
-                            root.clear(7);
-                        }
+                    clear(index) => {
+                        root.clear(index);
                     }
                 }
 
-                Rectangle {
-                    height: 6px;
-                }
-
-                SectionTitle {
-                    text: "Window";
-                }
-
-                Card {
-                    ShortcutRowItem {
-                        data: root.rows[8];
-                        label: "Maximize / restore";
-                        record => {
-                            root.record(8);
-                        }
-                        clear => {
-                            root.clear(8);
-                        }
+                ShortcutGroup {
+                    title: Tr.t("group.window");
+                    specs: root.window-actions;
+                    rows: root.rows;
+                    record(index) => {
+                        root.record(index);
                     }
-
-                    Divider {}
-
-                    ShortcutRowItem {
-                        data: root.rows[9];
-                        label: "Center";
-                        fx: 0.25;
-                        fy: 0.2;
-                        fw: 0.5;
-                        fh: 0.6;
-                        record => {
-                            root.record(9);
-                        }
-                        clear => {
-                            root.clear(9);
-                        }
+                    clear(index) => {
+                        root.clear(index);
                     }
                 }
 
-                Rectangle {
-                    height: 6px;
-                }
-
-                SectionTitle {
-                    text: "Displays";
-                }
-
-                Card {
-                    ShortcutRowItem {
-                        data: root.rows[10];
-                        label: "Next display";
-                        glyph: 1;
-                        record => {
-                            root.record(10);
-                        }
-                        clear => {
-                            root.clear(10);
-                        }
+                ShortcutGroup {
+                    title: Tr.t("group.displays");
+                    specs: root.displays;
+                    rows: root.rows;
+                    record(index) => {
+                        root.record(index);
                     }
-
-                    Divider {}
-
-                    ShortcutRowItem {
-                        data: root.rows[11];
-                        label: "Previous display";
-                        glyph: 2;
-                        record => {
-                            root.record(11);
-                        }
-                        clear => {
-                            root.clear(11);
-                        }
+                    clear(index) => {
+                        root.clear(index);
                     }
-                }
-
-                Rectangle {
-                    height: 6px;
                 }
 
                 HorizontalLayout {
                     alignment: start;
 
                     Button {
-                        text: "Restore defaults";
+                        text: Tr.t("button.restore_defaults");
                         clicked => {
                             root.restore-defaults();
                         }
@@ -728,144 +683,289 @@ export component SettingsWindow inherits Window {
             VerticalLayout {
                 padding-left: 24px;
                 padding-right: 24px;
-                padding-top: 20px;
-                padding-bottom: 24px;
-                spacing: 8px;
+                padding-top: 14px;
+                padding-bottom: 20px;
+                spacing: 16px;
                 alignment: start;
 
-                Text {
-                    text: "General";
-                    font-size: 22px;
-                    font-weight: 600;
-                    color: Palette.foreground;
-                }
-
-                Rectangle {
-                    height: 6px;
-                }
-
-                SectionTitle {
-                    text: "Window sizes";
-                }
-
                 Card {
                     SettingRow {
-                        title: "Size cycle";
-                        description: "Fractions or percentages, separated by commas. Repeating a shortcut steps through them.";
+                        title: Tr.t("general.language");
+                        description: Tr.t("general.language_desc");
 
-                        LineEdit {
+                        ComboBox {
                             preferred-width: 190px;
-                            placeholder-text: "1/2, 2/3, 1/3";
-                            text <=> root.sizes-text;
-                            edited => {
-                                root.sizes-error = "";
+                            model: root.language-names;
+                            current-index <=> root.language-index;
+                            selected(value) => {
+                                root.set-language(self.current-index);
                             }
-                            accepted => {
-                                root.sizes-error = root.apply-sizes(self.text);
-                            }
-                            changed has-focus => {
-                                if (!self.has-focus) {
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 4px;
+
+                    SectionTitle {
+                        text: Tr.t("group.window_sizes");
+                    }
+
+                    Card {
+                        SettingRow {
+                            title: Tr.t("general.size_cycle");
+                            description: Tr.t("general.size_cycle_desc");
+
+                            LineEdit {
+                                preferred-width: 190px;
+                                placeholder-text: "1/2, 2/3, 1/3";
+                                text <=> root.sizes-text;
+                                edited => {
+                                    root.sizes-error = "";
+                                }
+                                accepted => {
                                     root.sizes-error = root.apply-sizes(self.text);
                                 }
-                            }
-                        }
-                    }
-
-                    if root.sizes-error != "": HorizontalLayout {
-                        padding-left: 16px;
-                        padding-right: 16px;
-                        padding-bottom: 12px;
-
-                        Text {
-                            text: root.sizes-error;
-                            font-size: 12px;
-                            color: Ui.error;
-                            wrap: word-wrap;
-                        }
-                    }
-                }
-
-                Rectangle {
-                    height: 6px;
-                }
-
-                SectionTitle {
-                    text: "Startup";
-                }
-
-                Card {
-                    SettingRow {
-                        title: "Launch at startup";
-                        description: "Start Wectangle when you sign in to Windows.";
-
-                        Switch {
-                            text: self.checked ? "On" : "Off";
-                            checked <=> root.startup-enabled;
-                            toggled => {
-                                root.set-startup(self.checked);
-                            }
-                        }
-                    }
-                }
-
-                Rectangle {
-                    height: 6px;
-                }
-
-                SectionTitle {
-                    text: "Updates";
-                }
-
-                Card {
-                    SettingRow {
-                        title: "Check for updates automatically";
-                        description: "Wectangle looks for a new release once a day.";
-
-                        Switch {
-                            text: self.checked ? "On" : "Off";
-                            checked <=> root.auto-update;
-                            toggled => {
-                                root.set-auto-update(self.checked);
-                            }
-                        }
-                    }
-
-                    Divider {}
-
-                    SettingRow {
-                        title: root.update-status;
-
-                        HorizontalLayout {
-                            spacing: 8px;
-
-                            if root.update-available: Button {
-                                text: "Download";
-                                primary: true;
-                                clicked => {
-                                    root.download();
+                                changed has-focus => {
+                                    if (!self.has-focus) {
+                                        root.sizes-error = root.apply-sizes(self.text);
+                                    }
                                 }
                             }
+                        }
 
-                            Button {
-                                text: "Check now";
-                                enabled: !root.update-busy;
-                                clicked => {
-                                    root.check-now();
+                        if root.sizes-error != "": HorizontalLayout {
+                            padding-left: 16px;
+                            padding-right: 16px;
+                            padding-bottom: 12px;
+
+                            Text {
+                                text: root.sizes-error;
+                                font-size: 12px;
+                                color: Ui.error;
+                                wrap: word-wrap;
+                            }
+                        }
+                    }
+                }
+
+                VerticalLayout {
+                    spacing: 4px;
+
+                    SectionTitle {
+                        text: Tr.t("group.startup");
+                    }
+
+                    Card {
+                        SettingRow {
+                            title: Tr.t("general.startup");
+                            description: Tr.t("general.startup_desc");
+
+                            Switch {
+                                text: self.checked ? Tr.t("switch.on") : Tr.t("switch.off");
+                                checked <=> root.startup-enabled;
+                                toggled => {
+                                    root.set-startup(self.checked);
                                 }
                             }
                         }
                     }
                 }
 
+                VerticalLayout {
+                    spacing: 4px;
+
+                    SectionTitle {
+                        text: Tr.t("group.updates");
+                    }
+
+                    Card {
+                        SettingRow {
+                            title: Tr.t("general.auto_update");
+                            description: Tr.t("general.auto_update_desc");
+
+                            Switch {
+                                text: self.checked ? Tr.t("switch.on") : Tr.t("switch.off");
+                                checked <=> root.auto-update;
+                                toggled => {
+                                    root.set-auto-update(self.checked);
+                                }
+                            }
+                        }
+
+                        Divider {}
+
+                        SettingRow {
+                            title: root.update-status;
+
+                            HorizontalLayout {
+                                spacing: 8px;
+
+                                if root.update-available: Button {
+                                    text: Tr.t("button.download");
+                                    primary: true;
+                                    clicked => {
+                                        root.download();
+                                    }
+                                }
+
+                                Button {
+                                    text: Tr.t("button.check_now");
+                                    enabled: !root.update-busy;
+                                    clicked => {
+                                        root.check-now();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if root.page == 2: ScrollView {
+            VerticalLayout {
+                padding: 24px;
+                spacing: 6px;
+                alignment: center;
+
+                HorizontalLayout {
+                    alignment: center;
+
+                    Image {
+                        source: @image-url("../assets/wectangle-256.png");
+                        width: 80px;
+                        height: 80px;
+                    }
+                }
+
                 Rectangle {
-                    height: 10px;
+                    height: 8px;
                 }
 
                 Text {
-                    text: root.version-label;
-                    font-size: 12px;
-                    color: Ui.text-tertiary;
+                    text: "Wectangle";
+                    font-size: 24px;
+                    font-weight: 700;
+                    color: Palette.foreground;
                     horizontal-alignment: center;
+                }
+
+                Text {
+                    text: root.about-version;
+                    font-size: 12px;
+                    color: Ui.text-secondary;
+                    horizontal-alignment: center;
+                }
+
+                Rectangle {
+                    height: 16px;
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 8px;
+
+                    Button {
+                        text: Tr.t("about.check");
+                        enabled: !root.update-busy;
+                        clicked => {
+                            root.check-now();
+                        }
+                    }
+
+                    if root.update-available: Button {
+                        text: Tr.t("button.download");
+                        primary: true;
+                        clicked => {
+                            root.download();
+                        }
+                    }
+                }
+
+                if root.update-detail != "": Text {
+                    text: root.update-detail;
+                    font-size: 12px;
+                    color: Ui.text-secondary;
+                    horizontal-alignment: center;
+                    wrap: word-wrap;
+                }
+
+                Rectangle {
+                    height: 16px;
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+
+                    Link {
+                        text: Tr.t("about.website");
+                        url: "https://github.com/zolferfigueiredo/wectangle";
+                        open(url) => {
+                            root.open-url(url);
+                        }
+                    }
+                }
+
+                Rectangle {
+                    height: 6px;
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 4px;
+
+                    Text {
+                        text: Tr.t("about.made_by");
+                        font-size: 13px;
+                        color: Ui.text-secondary;
+                    }
+
+                    Link {
+                        text: "zolfer.com";
+                        url: "https://zolfer.com";
+                        open(url) => {
+                            root.open-url(url);
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 4px;
+
+                    Text {
+                        text: Tr.t("about.inspired_by");
+                        font-size: 13px;
+                        color: Ui.text-secondary;
+                    }
+
+                    Link {
+                        text: "Rectangle";
+                        url: "https://rectangleapp.com";
+                        open(url) => {
+                            root.open-url(url);
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 4px;
+
+                    Text {
+                        text: Tr.t("about.made_with");
+                        font-size: 13px;
+                        color: Ui.text-secondary;
+                    }
+
+                    Link {
+                        text: "Slint";
+                        url: "https://slint.dev";
+                        open(url) => {
+                            root.open-url(url);
+                        }
+                    }
                 }
             }
         }

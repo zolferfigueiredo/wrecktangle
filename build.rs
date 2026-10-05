@@ -13,7 +13,9 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows") {
         slint_build::compile_with_config(
             "ui/settings.slint",
-            slint_build::CompilerConfiguration::new().with_style("fluent".into()),
+            slint_build::CompilerConfiguration::new()
+                .with_style("fluent".into())
+                .embed_resources(slint_build::EmbedResourcesKind::EmbedFiles),
         )
         .unwrap();
     }

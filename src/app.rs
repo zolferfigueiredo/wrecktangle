@@ -13,6 +13,7 @@ use windows::core::PCWSTR;
 use windows::core::w;
 
 use crate::config::{self, Config};
+use crate::lang;
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
 use crate::theme;
@@ -86,8 +87,14 @@ pub fn init() -> windows::core::Result<HWND> {
         )?;
 
         let path = config::config_path();
-        let (config, source) = config::load(&path);
-        if source == config::Source::Missing {
+        let (mut config, source) = config::load(&path);
+        let language_unset = config.language.is_empty();
+        if language_unset {
+            config.language = lang::detect_system().to_string();
+        }
+        lang::set(&config.language);
+        if source == config::Source::Missing || (source == config::Source::Loaded && language_unset)
+        {
             let _ = config::save(&path, &config);
         }
 
@@ -124,11 +131,7 @@ pub fn init() -> windows::core::Result<HWND> {
         );
 
         if source == config::Source::Invalid {
-            tray::notify(
-                hwnd,
-                "Wectangle",
-                "config.json was invalid. Using default settings until you save changes in Settings.",
-            );
+            tray::notify(hwnd, "Wectangle", &lang::t("notify.config_invalid"));
         }
         if !failed.is_empty() {
             tray::notify(hwnd, "Wectangle", &failed_message(&failed));
@@ -164,17 +167,15 @@ pub fn shortcut_note(action: Action) -> Option<String> {
     })?;
     Some(match claim {
         Claim::TakenOver => takeover_note(&sc),
-        Claim::Reserved => RESERVED_NOTE.to_string(),
-        Claim::HookFailed => "In use by another app".to_string(),
+        Claim::Reserved => lang::t("status.reserved"),
+        Claim::HookFailed => lang::t("status.in_use"),
     })
 }
-
-const RESERVED_NOTE: &str = "Reserved by Windows";
 
 fn takeover_note(sc: &Shortcut) -> String {
     match owners::find_owner(sc) {
         Some(owner) => owner.note(),
-        None => "Overrides Windows or another app".to_string(),
+        None => lang::t("status.overrides_generic"),
     }
 }
 
@@ -230,7 +231,7 @@ fn notify_update_available(hwnd: HWND) {
         tray::notify_update(
             hwnd,
             "Wectangle",
-            &format!("Wectangle {version} is available. Click to download."),
+            &lang::format("notify.update_available", &[("version", &version)]),
         );
     }
 }
@@ -240,11 +241,11 @@ fn failed_message(failed: &[Action]) -> String {
     let names: Vec<String> = failed
         .iter()
         .map(|&action| match config.shortcuts.get(action) {
-            Some(sc) => format!("{} ({})", action.label(), shortcut::format(&sc)),
-            None => action.label().to_string(),
+            Some(sc) => format!("{} ({})", lang::t(action.key()), shortcut::format(&sc)),
+            None => lang::t(action.key()),
         })
         .collect();
-    format!("Could not use these shortcuts: {}", names.join(", "))
+    lang::format("notify.shortcuts_failed", &[("list", &names.join(", "))])
 }
 
 // Copies out what to register before calling RegisterHotKey, and only takes
@@ -353,11 +354,7 @@ fn run_action(hwnd: HWND, action: Action) {
         && let window_ops::ActionResult::AdminBlocked = window_ops::apply_action(action, &config)
         && !mark_admin_notice_shown()
     {
-        tray::notify(
-            hwnd,
-            "Wectangle",
-            "That window is running as administrator and cannot be moved.",
-        );
+        tray::notify(hwnd, "Wectangle", &lang::t("notify.admin_blocked"));
     }
 }
 

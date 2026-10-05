@@ -20,6 +20,10 @@ set of sizes.
   size cycle, and whether Wectangle launches at startup. Changes apply as you
   make them. Settings also names the app that a taken-over shortcut
   overrides, for example "Overrides PowerToys Peek".
+- Twelve languages (German, English, Spanish, French, Italian, Polish,
+  Portuguese, Russian, Ukrainian, Chinese, Japanese and Korean), chosen in
+  Settings under General. The first run follows the Windows display language.
+  Settings, the tray menu and notifications switch as soon as you pick one.
 - Update checks against GitHub Releases, on demand or once a day (see
   Updates).
 - No admin rights required, unless the window you want to move is itself
@@ -56,6 +60,9 @@ cargo build --release
 target\release\wectangle.exe
 ```
 
+On Windows, double-click `run.bat` to start Wectangle (it builds once if
+needed) or `build.bat` to rebuild after changing the code.
+
 Running the executable a second time brings up the Settings window of the
 already running instance instead of starting a second copy.
 
@@ -91,8 +98,9 @@ git config core.hooksPath .githooks
 ## Configuration
 
 Settings are stored at `%APPDATA%\Wectangle\config.json`. It holds the size
-cycle, the shortcut assigned to each action, `check_updates` (default `true`)
-and `last_update_check` (a Unix time in seconds, maintained by Wectangle).
+cycle, the shortcut assigned to each action, `language` (a two letter code),
+`check_updates` (default `true`) and `last_update_check` (a Unix time in
+seconds, maintained by Wectangle).
 Edit it through the Settings window; a hand-edited file that fails to parse
 falls back to defaults with a notification, and is left untouched until you
 change something in Settings.
@@ -147,3 +155,9 @@ check on demand.
 
   Change any of these from the Settings window if they conflict with how you
   work.
+
+## Credits
+
+The Settings window is built with [Slint](https://slint.dev).
+
+[![#MadeWithSlint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
