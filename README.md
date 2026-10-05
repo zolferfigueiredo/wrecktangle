@@ -17,7 +17,7 @@ set of sizes.
 - Shortcuts that Windows or another app already owns, such as
   Alt+Win+Left/Right, are taken over instead of refused (see Shortcut
   takeover).
-- A tray icon with a Windows 11 style Settings window (Slint, Fluent style,
+- A tray icon with a Windows 11 style Settings window (drawn with Direct2D,
   following the system light or dark theme) for changing any shortcut, the
   size cycle, and whether Wrecktangle launches at startup. Changes apply as you
   make them. Settings also names the app that a taken-over shortcut
@@ -97,8 +97,8 @@ Bump `version` in `Cargo.toml`, then push a tag named `v` plus that version
 
 ### Developer overrides
 
-- `WRECKTANGLE_THEME=light` or `dark` forces the Settings theme instead of
-  following Windows.
+- `WRECKTANGLE_THEME=light` or `dark` forces the theme of the Settings window
+  and menus instead of following Windows.
 - `WRECKTANGLE_UPDATE_URL` replaces the GitHub releases API URL for the update
   check, so a local server can stand in for GitHub. Plain `http://` is
   accepted only through this variable.
@@ -176,6 +176,3 @@ check on demand.
 ## Credits
 
 - Inspired by [Rectangle](https://rectangleapp.com) by Ryan Hanson, the macOS window manager.
-- The Settings window is built with [Slint](https://slint.dev).
-
-[![#MadeWithSlint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
