@@ -3,6 +3,11 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - installer/**
 
 permissions:
   contents: write
@@ -10,21 +15,68 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Check the tag matches the Cargo version
+      - name: Determine the version to build
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
-          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+          # Only a tag push publishes. A manual run or a pull request that
+          # touches the release is build-only, so there is no tag to check.
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
             echo "Tag $GITHUB_REF_NAME does not match Cargo version v$version" >&2
             exit 1
           fi
+          echo "V=$version" >> "$GITHUB_ENV"
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
       - run: rustup toolchain install && rustup target add x86_64-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2.9.2
+      - run: cargo test
       - run: cargo build --release --target x86_64-pc-windows-gnu
-      - run: cp target/x86_64-pc-windows-gnu/release/wrecktangle.exe wrecktangle.exe
-      - run: gh release create "$GITHUB_REF_NAME" wrecktangle.exe --generate-notes
+
+      - name: Zip
+        run: |
+          mkdir -p dist
+          cp target/x86_64-pc-windows-gnu/release/wrecktangle.exe dist/wrecktangle.exe
+          zip -j "dist/Wrecktangle-$V-x64.zip" dist/wrecktangle.exe
+
+      - name: Build the installer
+        # Inno Setup is a Windows program; this image runs it under Wine as a
+        # non-root user, who needs write access to dist.
+        run: |
+          chmod a+w dist
+          docker run --rm -v "$PWD:/work" amake/innosetup:innosetup6 \
+            "/DAppVersion=$V" '/DSourceExe=..\dist\wrecktangle.exe' installer/wrecktangle.iss
+
+      - name: Fixed-name copies, checksums and latest.json
+        run: |
+          cp "dist/Wrecktangle-$V-x64.zip" dist/Wrecktangle-x64.zip
+          cp "dist/Wrecktangle-$V-x64-setup.exe" dist/Wrecktangle-x64-setup.exe
+          sha256=$(sha256sum "dist/Wrecktangle-$V-x64.zip" | cut -d ' ' -f1)
+          printf '{"version":"%s","sha256":{"x64":"%s"}}\n' "$V" "$sha256" > dist/latest.json
+          (cd dist && sha256sum "Wrecktangle-$V-x64.zip" "Wrecktangle-$V-x64-setup.exe" > SHA256SUMS)
+
+      - name: Publish the release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$V" \
+            "dist/Wrecktangle-$V-x64-setup.exe" \
+            "dist/Wrecktangle-$V-x64.zip" \
+            "dist/Wrecktangle-x64-setup.exe" \
+            "dist/Wrecktangle-x64.zip" \
+            "dist/latest.json" \
+            "dist/SHA256SUMS" \
+            --title "Wrecktangle $V" --generate-notes
+
+      - name: Upload the build
+        if: github.event_name != 'push'
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: Wrecktangle-${{ env.V }}-build
+          retention-days: 14
+          path: |
+            dist/wrecktangle.exe
+            dist/Wrecktangle-${{ env.V }}-x64-setup.exe
+            dist/Wrecktangle-${{ env.V }}-x64.zip
