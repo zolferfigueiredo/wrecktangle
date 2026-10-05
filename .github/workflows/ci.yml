@@ -20,20 +20,22 @@ jobs:
           fi
           # Release files carry their version in the name, so the download
           # links do too.
-          stale=$(grep -oE 'releases/download/v[^/]+/Wrecktangle-[^-]+-x64[^)" ]*' README.md \
-            | grep -vF "releases/download/v$version/Wrecktangle-$version-x64" || true)
+          stale=$(grep -oE 'releases/download/v[^/]+/Wrecktangle-[^-]+-x(64|86)[^)" ]*' README.md \
+            | grep -vF "releases/download/v$version/Wrecktangle-$version-x" || true)
           if [ -n "$stale" ]; then
             echo "README.md links to files of another version than v$version:" >&2
             echo "$stale" >&2
             exit 1
           fi
           echo "V=$version" >> "$GITHUB_ENV"
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
-      - run: rustup toolchain install && rustup target add x86_64-pc-windows-gnu
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 gcc-mingw-w64-i686
+      - run: rustup toolchain install && rustup target add x86_64-pc-windows-gnu i686-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo fmt --check
       - run: cargo test
       - run: cargo clippy --target x86_64-pc-windows-gnu --all-targets -- -D warnings
+      # The 32-bit build differs in places: some Win32 structs are packed there.
+      - run: cargo clippy --target i686-pc-windows-gnu --all-targets -- -D warnings
       - run: cargo build --release --target x86_64-pc-windows-gnu
       - run: cp target/x86_64-pc-windows-gnu/release/wrecktangle.exe "Wrecktangle-$V-x64.exe"
       - uses: actions/upload-artifact@v7.0.1

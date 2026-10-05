@@ -22,6 +22,11 @@
   <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.2/Wrecktangle-0.3.2-x64-setup.exe"><b>Download for Windows</b></a>
   &nbsp;·&nbsp;
   <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.2/Wrecktangle-0.3.2-x64.zip">Portable zip</a>
+  <br>
+  <sub>32-bit Windows:
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.2/Wrecktangle-0.3.2-x86-setup.exe">installer</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.2/Wrecktangle-0.3.2-x86.zip">portable zip</a></sub>
 </p>
 
 <p align="center">
@@ -44,7 +49,11 @@ Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/relea
 put `wrecktangle.exe` somewhere permanent, run it from there, and turn on
 **Launch at startup** from the tray menu.
 
-You need Windows 10 or 11, 64-bit. Uninstall it from Apps in Windows Settings.
+You need Windows 10 or 11. The links above are for 64-bit Windows; on 32-bit
+Windows, take the
+[32-bit installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.2/Wrecktangle-0.3.2-x86-setup.exe)
+or [32-bit zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.2/Wrecktangle-0.3.2-x86.zip)
+instead. Uninstall it from Apps in Windows Settings.
 
 **Coming from Wectangle?** Wrecktangle used to be called Wectangle. On its
 first start it closes a running Wectangle, copies
@@ -208,13 +217,17 @@ git config core.hooksPath .githooks
 badge and download links (CI fails while they differ). Once that is merged,
 tag `main` with `v` plus that version (for example `v0.2.0`) and push the tag.
 The Release workflow checks the tag against `Cargo.toml`, refuses a tag that
-isn't on `main`, runs the tests and builds `wrecktangle.exe` on a Windows
-runner with MSVC, packs it into a zip and an Inno Setup installer, and
-publishes a GitHub release named "Wrecktangle <version>" with:
+isn't on `main`, runs the tests and builds `wrecktangle.exe` for 64-bit and
+32-bit Windows on a Windows runner with MSVC, packs each into a zip and an
+Inno Setup installer, and publishes a GitHub release named
+"Wrecktangle <version>" with:
 
 - `Wrecktangle-<version>-x64-setup.exe` and `Wrecktangle-<version>-x64.zip`
-- `SHA256SUMS` for both, and `latest.json` with the version and the zip's
-  SHA-256
+  (64-bit)
+- `Wrecktangle-<version>-x86-setup.exe` and `Wrecktangle-<version>-x86.zip`
+  (32-bit)
+- `SHA256SUMS` for all four, and `latest.json` with the version and the
+  zips' SHA-256
 
 Running the workflow by hand, or a pull request that changes it or
 `installer/`, builds the same files without publishing and uploads them as a

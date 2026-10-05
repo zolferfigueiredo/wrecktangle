@@ -235,9 +235,21 @@ struct AssetJson {
     browser_download_url: Option<String>,
 }
 
-/// The installer a release publishes, named after its version.
+/// The architecture this copy was built for, as release files name it, so a
+/// 32-bit copy updates to the 32-bit installer.
+const ARCH: &str = if cfg!(target_arch = "x86") {
+    "x86"
+} else {
+    "x64"
+};
+
+/// The installer a release publishes for this architecture, named after the
+/// release's version.
 fn installer_name(tag: &str) -> String {
-    format!("Wrecktangle-{}-x64-setup.exe", tag.trim_start_matches('v'))
+    format!(
+        "Wrecktangle-{}-{ARCH}-setup.exe",
+        tag.trim_start_matches('v')
+    )
 }
 
 pub fn parse_release(json: &str) -> Result<Release, &'static str> {
@@ -559,9 +571,15 @@ mod tests {
         "assets": [
             {"name": "notes.txt", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/notes.txt"},
             {"name": "Wrecktangle-0.2.2-x64-setup.exe", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/Wrecktangle-0.2.2-x64-setup.exe"},
+            {"name": "Wrecktangle-0.3.0-x86-setup.exe", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/Wrecktangle-0.3.0-x86-setup.exe"},
             {"name": "Wrecktangle-0.3.0-x64-setup.exe", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/Wrecktangle-0.3.0-x64-setup.exe"}
         ]
     }"#;
+
+    /// The installer RELEASE_JSON offers this build's architecture.
+    fn expected_installer() -> String {
+        format!("https://github.com/x/releases/download/v0.3.0/Wrecktangle-0.3.0-{ARCH}-setup.exe")
+    }
 
     #[test]
     fn parse_version_accepts_plain_and_prefixed_versions() {
@@ -618,10 +636,7 @@ mod tests {
     fn release_json_picks_the_installer_named_for_its_version() {
         let release = parse_release(RELEASE_JSON).unwrap();
         assert_eq!(release.tag, "v0.3.0");
-        assert_eq!(
-            release.url,
-            "https://github.com/x/releases/download/v0.3.0/Wrecktangle-0.3.0-x64-setup.exe"
-        );
+        assert_eq!(release.url, expected_installer());
     }
 
     #[test]
@@ -637,8 +652,20 @@ mod tests {
 
     #[test]
     fn installer_name_follows_the_tag() {
-        assert_eq!(installer_name("v0.3.0"), "Wrecktangle-0.3.0-x64-setup.exe");
-        assert_eq!(installer_name("1.0.0"), "Wrecktangle-1.0.0-x64-setup.exe");
+        assert_eq!(
+            installer_name("v0.3.0"),
+            format!("Wrecktangle-0.3.0-{ARCH}-setup.exe")
+        );
+        assert_eq!(
+            installer_name("1.0.0"),
+            format!("Wrecktangle-1.0.0-{ARCH}-setup.exe")
+        );
+        let expected = if cfg!(target_pointer_width = "32") {
+            "x86"
+        } else {
+            "x64"
+        };
+        assert_eq!(ARCH, expected);
     }
 
     #[test]
@@ -661,9 +688,7 @@ mod tests {
             state,
             State::Available {
                 version: "0.3.0".to_string(),
-                url:
-                    "https://github.com/x/releases/download/v0.3.0/Wrecktangle-0.3.0-x64-setup.exe"
-                        .to_string(),
+                url: expected_installer(),
             }
         );
     }
@@ -855,9 +880,7 @@ mod tests {
             evaluate(status, &body, "0.2.0", 1),
             State::Available {
                 version: "0.3.0".to_string(),
-                url:
-                    "https://github.com/x/releases/download/v0.3.0/Wrecktangle-0.3.0-x64-setup.exe"
-                        .to_string(),
+                url: expected_installer(),
             }
         );
     }

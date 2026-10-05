@@ -45,31 +45,42 @@ jobs:
             fi
           fi
           echo "V=$version" >> "$GITHUB_ENV"
-      - run: rustup toolchain install
+      - run: rustup toolchain install && rustup target add i686-pc-windows-msvc
       - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo test
+      - run: cargo test --target i686-pc-windows-msvc
       - run: cargo build --release
+      - run: cargo build --release --target i686-pc-windows-msvc
 
       - name: Zip
+        # x64 is the 64-bit build, x86 the 32-bit one; each zip holds a plain
+        # wrecktangle.exe.
         run: |
-          mkdir -p dist
-          cp target/release/wrecktangle.exe dist/wrecktangle.exe
-          (cd dist && 7z a -tzip "Wrecktangle-$V-x64.zip" wrecktangle.exe)
+          mkdir -p dist/x64 dist/x86
+          cp target/release/wrecktangle.exe dist/x64/wrecktangle.exe
+          cp target/i686-pc-windows-msvc/release/wrecktangle.exe dist/x86/wrecktangle.exe
+          for arch in x64 x86; do
+            (cd "dist/$arch" && 7z a -tzip "../Wrecktangle-$V-$arch.zip" wrecktangle.exe)
+          done
 
-      - name: Build the installer
+      - name: Build the installers
         # PowerShell, because Git Bash would rewrite the /D arguments as paths.
         shell: pwsh
         run: |
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
-          & $iscc "/DAppVersion=$env:V" "/DSourceExe=..\dist\wrecktangle.exe" installer\wrecktangle.iss
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($arch in "x64", "x86") {
+            & $iscc "/DAppVersion=$env:V" "/DArch=$arch" "/DSourceExe=..\dist\$arch\wrecktangle.exe" installer\wrecktangle.iss
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
 
       - name: Checksums and latest.json
         run: |
-          sha256=$(sha256sum "dist/Wrecktangle-$V-x64.zip" | cut -d ' ' -f1)
-          printf '{"version":"%s","sha256":{"x64":"%s"}}\n' "$V" "$sha256" > dist/latest.json
-          (cd dist && sha256sum "Wrecktangle-$V-x64.zip" "Wrecktangle-$V-x64-setup.exe" > SHA256SUMS)
+          x64=$(sha256sum "dist/Wrecktangle-$V-x64.zip" | cut -d ' ' -f1)
+          x86=$(sha256sum "dist/Wrecktangle-$V-x86.zip" | cut -d ' ' -f1)
+          printf '{"version":"%s","sha256":{"x64":"%s","x86":"%s"}}\n' "$V" "$x64" "$x86" > dist/latest.json
+          (cd dist && sha256sum Wrecktangle-$V-x64.zip Wrecktangle-$V-x64-setup.exe \
+            Wrecktangle-$V-x86.zip Wrecktangle-$V-x86-setup.exe > SHA256SUMS)
 
       - name: Publish the release
         if: github.event_name == 'push'
@@ -79,6 +90,8 @@ jobs:
           gh release create "v$V" \
             "dist/Wrecktangle-$V-x64-setup.exe" \
             "dist/Wrecktangle-$V-x64.zip" \
+            "dist/Wrecktangle-$V-x86-setup.exe" \
+            "dist/Wrecktangle-$V-x86.zip" \
             "dist/latest.json" \
             "dist/SHA256SUMS" \
             --title "Wrecktangle $V" --generate-notes
@@ -92,3 +105,5 @@ jobs:
           path: |
             dist/Wrecktangle-${{ env.V }}-x64-setup.exe
             dist/Wrecktangle-${{ env.V }}-x64.zip
+            dist/Wrecktangle-${{ env.V }}-x86-setup.exe
+            dist/Wrecktangle-${{ env.V }}-x86.zip
