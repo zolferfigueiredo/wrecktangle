@@ -14,13 +14,19 @@ permissions:
 
 jobs:
   release:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The same MSVC build as run.bat, so the tests run natively and Inno
+    # Setup runs on Windows instead of under Wine.
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Determine the version to build
         run: |
-          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          # The checkout has CRLF line endings on Windows.
+          version=$(tr -d '\r' < Cargo.toml | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n 1)
           # Only a tag push publishes. A manual run or a pull request that
           # touches the release is build-only, so there is no tag to check.
           if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
@@ -28,25 +34,25 @@ jobs:
             exit 1
           fi
           echo "V=$version" >> "$GITHUB_ENV"
-      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
-      - run: rustup toolchain install && rustup target add x86_64-pc-windows-gnu
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo test
-      - run: cargo build --release --target x86_64-pc-windows-gnu
+      - run: cargo build --release
 
       - name: Zip
         run: |
           mkdir -p dist
-          cp target/x86_64-pc-windows-gnu/release/wrecktangle.exe dist/wrecktangle.exe
-          zip -j "dist/Wrecktangle-$V-x64.zip" dist/wrecktangle.exe
+          cp target/release/wrecktangle.exe dist/wrecktangle.exe
+          (cd dist && 7z a -tzip "Wrecktangle-$V-x64.zip" wrecktangle.exe)
 
       - name: Build the installer
-        # Inno Setup is a Windows program; this image runs it under Wine as a
-        # non-root user, who needs write access to dist.
+        # PowerShell, because Git Bash would rewrite the /D arguments as paths.
+        shell: pwsh
         run: |
-          chmod a+w dist
-          docker run --rm -v "$PWD:/work" amake/innosetup:innosetup6 \
-            "/DAppVersion=$V" '/DSourceExe=..\dist\wrecktangle.exe' installer/wrecktangle.iss
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y }
+          & $iscc "/DAppVersion=$env:V" "/DSourceExe=..\dist\wrecktangle.exe" installer\wrecktangle.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Fixed-name copies, checksums and latest.json
         run: |
