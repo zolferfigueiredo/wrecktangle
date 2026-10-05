@@ -79,6 +79,5 @@ jobs:
           name: Wrecktangle-${{ env.V }}-build
           retention-days: 14
           path: |
-            dist/wrecktangle.exe
             dist/Wrecktangle-${{ env.V }}-x64-setup.exe
             dist/Wrecktangle-${{ env.V }}-x64.zip

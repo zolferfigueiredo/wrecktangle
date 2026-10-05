@@ -221,7 +221,7 @@ workflow artifact.
 
 **CI** checks every pull request on Linux, cross-compiling for Windows:
 `cargo fmt --check`, `cargo test`, Clippy with warnings as errors, and a
-release build whose `wrecktangle.exe` is uploaded as a workflow artifact.
+release build uploaded as a workflow artifact, `Wrecktangle-<version>-x64.exe`.
 
 <details>
 <summary><b>Developer overrides</b></summary>
