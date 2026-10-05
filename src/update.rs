@@ -24,7 +24,7 @@ use windows::core::{PCWSTR, w};
 const DEFAULT_URL: &str =
     "https://api.github.com/repos/zolferfigueiredo/wrecktangle/releases/latest";
 const URL_OVERRIDE_VAR: &str = "WRECKTANGLE_UPDATE_URL";
-const ASSET_NAME: &str = "wrecktangle.exe";
+const ASSET_NAME: &str = "Wrecktangle-x64-setup.exe";
 
 const BAD_REPLY: &str = "unexpected reply";
 const NO_DOWNLOAD: &str = "no download link";
@@ -553,7 +553,8 @@ mod tests {
         "body": "notes",
         "assets": [
             {"name": "notes.txt", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/notes.txt"},
-            {"name": "wrecktangle.exe", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/wrecktangle.exe"}
+            {"name": "Wrecktangle-0.3.0-x64-setup.exe", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/Wrecktangle-0.3.0-x64-setup.exe"},
+            {"name": "Wrecktangle-x64-setup.exe", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/Wrecktangle-x64-setup.exe"}
         ]
     }"#;
 
@@ -614,7 +615,7 @@ mod tests {
         assert_eq!(release.tag, "v0.3.0");
         assert_eq!(
             release.url,
-            "https://github.com/x/releases/download/v0.3.0/wrecktangle.exe"
+            "https://github.com/x/releases/download/v0.3.0/Wrecktangle-x64-setup.exe"
         );
     }
 
@@ -649,7 +650,8 @@ mod tests {
             state,
             State::Available {
                 version: "0.3.0".to_string(),
-                url: "https://github.com/x/releases/download/v0.3.0/wrecktangle.exe".to_string(),
+                url: "https://github.com/x/releases/download/v0.3.0/Wrecktangle-x64-setup.exe"
+                    .to_string(),
             }
         );
     }
@@ -841,7 +843,8 @@ mod tests {
             evaluate(status, &body, "0.2.0", 1),
             State::Available {
                 version: "0.3.0".to_string(),
-                url: "https://github.com/x/releases/download/v0.3.0/wrecktangle.exe".to_string(),
+                url: "https://github.com/x/releases/download/v0.3.0/Wrecktangle-x64-setup.exe"
+                    .to_string(),
             }
         );
     }

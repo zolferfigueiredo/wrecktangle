@@ -70,9 +70,20 @@ already running instance instead of starting a second copy.
 
 ### Installing it for everyday use
 
-Copy `target\release\wrecktangle.exe` somewhere permanent, for example
-`%LOCALAPPDATA%\Programs\Wrecktangle`, run it from there, and turn on "Launch
-at startup" from the tray menu or the Settings window.
+Download `Wrecktangle-x64-setup.exe` from the
+[latest release](https://github.com/zolferfigueiredo/wrecktangle/releases/latest)
+and run it. It installs for your user only, into
+`%LOCALAPPDATA%\Programs\Wrecktangle`, without asking for admin rights, and
+can turn on "Launch at startup" for you. Uninstall it from Windows Settings,
+Apps.
+
+`Wrecktangle-x64.zip` holds the same `wrecktangle.exe` without an installer:
+put it somewhere permanent, run it from there, and turn on "Launch at startup"
+from the tray menu or the Settings window.
+
+To build the installer yourself, install Inno Setup 6
+(`winget install JRSoftware.InnoSetup`) and run `installer.bat`. It builds
+Wrecktangle and writes `dist\Wrecktangle-<version>-x64-setup.exe`.
 
 ### Upgrading from Wectangle
 
@@ -93,7 +104,19 @@ changing any of them, run `cargo run --example make_icon` to render them into
 
 Bump `version` in `Cargo.toml`, then push a tag named `v` plus that version
 (for example `v0.2.0`). The Release workflow checks the tag against
-`Cargo.toml`, builds `wrecktangle.exe` and publishes it as a GitHub release.
+`Cargo.toml`, builds `wrecktangle.exe` on Linux, packs it into a zip and an
+Inno Setup installer (run under Wine in Docker), and publishes a GitHub
+release named "Wrecktangle <version>" with:
+
+- `Wrecktangle-<version>-x64-setup.exe` and `Wrecktangle-<version>-x64.zip`
+- `Wrecktangle-x64-setup.exe` and `Wrecktangle-x64.zip`, the same files
+  under fixed names, so `releases/latest/download/<name>` links never change
+- `SHA256SUMS` for the versioned files, and `latest.json` with the version
+  and the zip's SHA-256
+
+Running the workflow by hand, or a pull request that changes it or
+`installer/`, builds the same files without publishing and uploads them as a
+workflow artifact.
 
 ### Developer overrides
 
@@ -148,7 +171,7 @@ hidden from the owner and from the focused app. Settings shows the status as
 Wrecktangle asks `api.github.com` for the latest release of this repository 30
 seconds after it starts, if 24 hours have passed since the last check, and
 then every 24 hours. When a newer version exists, a tray notification says so
-and clicking it opens the download in your browser. Wrecktangle never installs
+and clicking it downloads the new installer in your browser. Wrecktangle never installs
 anything itself.
 
 Turn the automatic check off with "Check for updates automatically" in
