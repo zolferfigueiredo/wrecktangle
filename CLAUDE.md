@@ -49,7 +49,9 @@ A Rectangle-style keyboard window manager for Windows, in Rust.
 
 ## Releasing
 
-Bump `version` in `Cargo.toml`, tag `v<version>` and push the tag; the
+Bump `version` in `Cargo.toml` and in the README's release badge (the repo
+is private, so shields.io can't read releases; CI checks the two match), tag
+`v<version>` and push the tag; the
 Release workflow publishes the installer and zip, versioned and under fixed
 names, plus `SHA256SUMS` and `latest.json`. The update check looks for the
 fixed-name `Wrecktangle-x64-setup.exe` (`ASSET_NAME` in `src/update.rs`), so

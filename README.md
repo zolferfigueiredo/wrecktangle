@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/github/v/release/zolferfigueiredo/wrecktangle" alt="Latest release"></a>
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.2.2-blue" alt="Latest release"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024%20edition-orange" alt="Rust 2024 edition"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue" alt="Windows 10 or 11">
   <a href="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml"><img src="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
@@ -196,8 +196,9 @@ cloning:
 git config core.hooksPath .githooks
 ```
 
-**Release.** Bump `version` in `Cargo.toml`, then push a tag named `v` plus
-that version (for example `v0.2.0`). The Release workflow checks the tag
+**Release.** Bump `version` in `Cargo.toml` and in the release badge at the
+top of this README (CI fails while they differ), then push a tag named `v`
+plus that version (for example `v0.2.0`). The Release workflow checks the tag
 against `Cargo.toml`, builds `wrecktangle.exe` on Linux, packs it into a zip
 and an Inno Setup installer (run under Wine in Docker), and publishes a GitHub
 release named "Wrecktangle <version>" with:
