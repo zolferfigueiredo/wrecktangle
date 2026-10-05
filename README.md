@@ -9,8 +9,8 @@ set of sizes.
 
 - Global shortcuts to snap the focused window to a side, a corner, the top,
   the bottom, or the center of its monitor.
-- Repeating a shortcut steps through a size cycle (defaults to 1/2, 2/3, 1/3,
-  2/7 of the work area).
+- Repeating a shortcut steps through a size cycle. Pick any of 1/2, 2/3, 3/4,
+  1/4 and 1/3 of the work area in Settings (1/2, 2/3 and 3/4 by default).
 - Maximize and restore, and moving a window to the next or previous monitor.
 - Shortcuts that Windows or another app already owns, such as
   Alt+Win+Left/Right, are taken over instead of refused (see Shortcut
