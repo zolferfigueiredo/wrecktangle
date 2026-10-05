@@ -32,23 +32,27 @@ global Ui {
     out property <brush> text-tertiary: Palette.foreground.with-alpha(0.55);
     out property <brush> divider: Palette.foreground.with-alpha(0.08);
     out property <brush> card-border: Palette.foreground.with-alpha(0.1);
+    out property <color> icon-fill: #fff552;
+    out property <color> icon-edge: Palette.color-scheme == ColorScheme.dark ? #fff552 : #c8bd00;
+    out property <color> icon-ink: Palette.color-scheme == ColorScheme.dark ? #fff552 : #c8bd00;
     out property <color> warning: Palette.color-scheme == ColorScheme.dark ? #ffc83d : #9d5d00;
     out property <color> error: Palette.color-scheme == ColorScheme.dark ? #ff99a4 : #c42b1c;
 }
 
 component Divider inherits Rectangle {
-    height: 1px;
+    height: 1phx;
     background: Ui.divider;
 }
 
 component Card inherits Rectangle {
     background: Palette.control-background;
     border-radius: 6px;
-    border-width: 1px;
+    border-width: 1phx;
     border-color: Ui.card-border;
 
     VerticalLayout {
         alignment: start;
+        padding: 1phx;
 
         @children
     }
@@ -166,46 +170,75 @@ component LayoutIcon inherits Rectangle {
     in property <float> fh;
     in property <int> glyph;
 
-    width: 26px;
-    height: 18px;
-    border-radius: 3px;
-    border-width: 1.5px;
-    border-color: Palette.foreground.with-alpha(0.5);
-    background: Palette.foreground.with-alpha(0.04);
+    // All geometry is in whole device pixels, so the gaps stay even at any scale.
+    property <float> w: 2 * Math.round(28px / 1phx / 2);
+    property <float> h: 2 * Math.round(20px / 1phx / 2);
+    property <float> stroke: Math.max(1, Math.round(1.25px / 1phx));
+    property <float> inset: stroke + Math.max(1, Math.round(3px / 1phx));
+    property <float> cw: w - 2 * inset;
+    property <float> ch: h - 2 * inset;
+    property <float> centered-w: 2 * Math.round(cw / 4);
+    property <float> centered-h: 2 * Math.round(ch / 4);
+    property <float> chevron-w: 2 * Math.round(ch * 0.18);
+    property <float> chevron-h: 2 * chevron-w;
+    property <float> margin: 2 * stroke;
+
+    width: w * 1phx;
+    height: h * 1phx;
+
+    Rectangle {
+        border-radius: Math.round(4px / 1phx) * 1phx;
+        border-width: root.stroke * 1phx;
+        border-color: Palette.foreground.with-alpha(0.5);
+        background: Palette.foreground.with-alpha(0.04);
+    }
 
     if root.glyph == 0: Rectangle {
-        x: 2.5px + (root.width - 5px) * root.fx;
-        y: 2.5px + (root.height - 5px) * root.fy;
-        width: (root.width - 5px) * root.fw;
-        height: (root.height - 5px) * root.fh;
-        border-radius: 1.5px;
-        background: Palette.accent-background;
+        x: (root.inset + root.cw * root.fx) * 1phx;
+        y: (root.inset + root.ch * root.fy) * 1phx;
+        width: root.cw * root.fw * 1phx;
+        height: root.ch * root.fh * 1phx;
+        border-radius: Math.max(1, Math.round(1.5px / 1phx)) * 1phx;
+        border-width: 1phx;
+        border-color: Ui.icon-edge;
+        background: Ui.icon-fill;
+    }
+
+    if root.glyph == 3: Rectangle {
+        x: (root.inset + (root.cw - root.centered-w) / 2) * 1phx;
+        y: (root.inset + (root.ch - root.centered-h) / 2) * 1phx;
+        width: root.centered-w * 1phx;
+        height: root.centered-h * 1phx;
+        border-radius: Math.max(1, Math.round(1.5px / 1phx)) * 1phx;
+        border-width: 1phx;
+        border-color: Ui.icon-edge;
+        background: Ui.icon-fill;
     }
 
     if root.glyph == 1: Path {
-        x: (root.width - self.width) / 2;
-        y: (root.height - self.height) / 2;
-        width: 6px;
-        height: 10px;
-        viewbox-width: 6;
-        viewbox-height: 10;
-        commands: "M 1.3 1.3 L 4.7 5 L 1.3 8.7";
-        stroke: Palette.accent-background;
-        stroke-width: 1.8px;
+        x: (root.inset + (root.cw - root.chevron-w) / 2 - root.margin) * 1phx;
+        y: (root.inset + (root.ch - root.chevron-h) / 2 - root.margin) * 1phx;
+        width: (root.chevron-w + 2 * root.margin) * 1phx;
+        height: (root.chevron-h + 2 * root.margin) * 1phx;
+        viewbox-width: root.chevron-w + 2 * root.margin;
+        viewbox-height: root.chevron-h + 2 * root.margin;
+        commands: "M " + root.margin + " " + root.margin + " L " + (root.margin + root.chevron-w) + " " + (root.margin + root.chevron-h / 2) + " L " + root.margin + " " + (root.margin + root.chevron-h);
+        stroke: Ui.icon-ink;
+        stroke-width: root.stroke * 1phx;
         stroke-line-cap: round;
         stroke-line-join: round;
     }
 
     if root.glyph == 2: Path {
-        x: (root.width - self.width) / 2;
-        y: (root.height - self.height) / 2;
-        width: 6px;
-        height: 10px;
-        viewbox-width: 6;
-        viewbox-height: 10;
-        commands: "M 4.7 1.3 L 1.3 5 L 4.7 8.7";
-        stroke: Palette.accent-background;
-        stroke-width: 1.8px;
+        x: (root.inset + (root.cw - root.chevron-w) / 2 - root.margin) * 1phx;
+        y: (root.inset + (root.ch - root.chevron-h) / 2 - root.margin) * 1phx;
+        width: (root.chevron-w + 2 * root.margin) * 1phx;
+        height: (root.chevron-h + 2 * root.margin) * 1phx;
+        viewbox-width: root.chevron-w + 2 * root.margin;
+        viewbox-height: root.chevron-h + 2 * root.margin;
+        commands: "M " + (root.margin + root.chevron-w) + " " + root.margin + " L " + root.margin + " " + (root.margin + root.chevron-h / 2) + " L " + (root.margin + root.chevron-w) + " " + (root.margin + root.chevron-h);
+        stroke: Ui.icon-ink;
+        stroke-width: root.stroke * 1phx;
         stroke-line-cap: round;
         stroke-line-join: round;
     }
@@ -331,14 +364,16 @@ component ClearButton inherits Rectangle {
 component ShortcutRowItem inherits Rectangle {
     in property <ShortcutRow> data;
     in property <RowSpec> spec;
-    in property <bool> divider;
     callback record();
     callback clear();
 
-    min-height: 36px;
+    property <length> base-height: 2 * Math.round(36px / 1phx / 2) * 1phx;
+    property <length> note-height: 2 * Math.round(40px / 1phx / 2) * 1phx;
+
+    min-height: root.data.note != "" || (root.data.recording && root.data.hint != "") ? root.note-height : root.base-height;
 
     HorizontalLayout {
-        padding-left: 14px;
+        padding-left: Math.round(14px / 1phx) * 1phx;
         padding-right: 8px;
         padding-top: 3px;
         padding-bottom: 3px;
@@ -412,10 +447,6 @@ component ShortcutRowItem inherits Rectangle {
             }
         }
     }
-
-    if root.divider: Divider {
-        y: 0px;
-    }
 }
 
 component ShortcutGroup inherits VerticalLayout {
@@ -432,15 +463,18 @@ component ShortcutGroup inherits VerticalLayout {
     }
 
     Card {
-        for item[i] in root.specs: ShortcutRowItem {
-            data: root.rows[item.index];
-            spec: item;
-            divider: i > 0;
-            record => {
-                root.record(item.index);
-            }
-            clear => {
-                root.clear(item.index);
+        for item[i] in root.specs: VerticalLayout {
+            if i > 0: Divider {}
+
+            ShortcutRowItem {
+                data: root.rows[item.index];
+                spec: item;
+                record => {
+                    root.record(item.index);
+                }
+                clear => {
+                    root.clear(item.index);
+                }
             }
         }
     }
@@ -531,7 +565,7 @@ export component SettingsWindow inherits Window {
     ];
     property <[RowSpec]> window-actions: [
         { index: 8, fx: 0, fy: 0, fw: 1, fh: 1, glyph: 0 },
-        { index: 9, fx: 0.25, fy: 0.2, fw: 0.5, fh: 0.6, glyph: 0 },
+        { index: 9, fx: 0, fy: 0, fw: 0, fh: 0, glyph: 3 },
     ];
     property <[RowSpec]> displays: [
         { index: 10, fx: 0, fy: 0, fw: 0, fh: 0, glyph: 1 },
