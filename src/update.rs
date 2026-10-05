@@ -650,7 +650,8 @@ mod tests {
             state,
             State::Available {
                 version: "0.3.0".to_string(),
-                url: "https://github.com/x/releases/download/v0.3.0/wrecktangle.exe".to_string(),
+                url: "https://github.com/x/releases/download/v0.3.0/Wrecktangle-x64-setup.exe"
+                    .to_string(),
             }
         );
     }
@@ -842,7 +843,8 @@ mod tests {
             evaluate(status, &body, "0.2.0", 1),
             State::Available {
                 version: "0.3.0".to_string(),
-                url: "https://github.com/x/releases/download/v0.3.0/wrecktangle.exe".to_string(),
+                url: "https://github.com/x/releases/download/v0.3.0/Wrecktangle-x64-setup.exe"
+                    .to_string(),
             }
         );
     }
