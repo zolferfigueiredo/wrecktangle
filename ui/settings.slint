@@ -32,9 +32,6 @@ global Ui {
     out property <brush> text-tertiary: Palette.foreground.with-alpha(0.55);
     out property <brush> divider: Palette.foreground.with-alpha(0.08);
     out property <brush> card-border: Palette.foreground.with-alpha(0.1);
-    out property <color> icon-fill: #fff552;
-    out property <color> icon-edge: Palette.color-scheme == ColorScheme.dark ? #fff552 : #c8bd00;
-    out property <color> icon-ink: Palette.color-scheme == ColorScheme.dark ? #fff552 : #c8bd00;
     out property <color> warning: Palette.color-scheme == ColorScheme.dark ? #ffc83d : #9d5d00;
     out property <color> error: Palette.color-scheme == ColorScheme.dark ? #ff99a4 : #c42b1c;
 }
@@ -174,7 +171,7 @@ component LayoutIcon inherits Rectangle {
     property <float> w: 2 * Math.round(28px / 1phx / 2);
     property <float> h: 2 * Math.round(20px / 1phx / 2);
     property <float> stroke: Math.max(1, Math.round(1.25px / 1phx));
-    property <float> inset: stroke + Math.max(1, Math.round(3px / 1phx));
+    property <float> inset: stroke + Math.max(1, Math.round(1.5px / 1phx));
     property <float> cw: w - 2 * inset;
     property <float> ch: h - 2 * inset;
     property <float> centered-w: 2 * Math.round(cw / 4);
@@ -199,9 +196,7 @@ component LayoutIcon inherits Rectangle {
         width: root.cw * root.fw * 1phx;
         height: root.ch * root.fh * 1phx;
         border-radius: Math.max(1, Math.round(1.5px / 1phx)) * 1phx;
-        border-width: 1phx;
-        border-color: Ui.icon-edge;
-        background: Ui.icon-fill;
+        background: Palette.accent-background;
     }
 
     if root.glyph == 3: Rectangle {
@@ -210,9 +205,7 @@ component LayoutIcon inherits Rectangle {
         width: root.centered-w * 1phx;
         height: root.centered-h * 1phx;
         border-radius: Math.max(1, Math.round(1.5px / 1phx)) * 1phx;
-        border-width: 1phx;
-        border-color: Ui.icon-edge;
-        background: Ui.icon-fill;
+        background: Palette.accent-background;
     }
 
     if root.glyph == 1: Path {
@@ -223,7 +216,7 @@ component LayoutIcon inherits Rectangle {
         viewbox-width: root.chevron-w + 2 * root.margin;
         viewbox-height: root.chevron-h + 2 * root.margin;
         commands: "M " + root.margin + " " + root.margin + " L " + (root.margin + root.chevron-w) + " " + (root.margin + root.chevron-h / 2) + " L " + root.margin + " " + (root.margin + root.chevron-h);
-        stroke: Ui.icon-ink;
+        stroke: Palette.accent-background;
         stroke-width: root.stroke * 1phx;
         stroke-line-cap: round;
         stroke-line-join: round;
@@ -237,7 +230,7 @@ component LayoutIcon inherits Rectangle {
         viewbox-width: root.chevron-w + 2 * root.margin;
         viewbox-height: root.chevron-h + 2 * root.margin;
         commands: "M " + (root.margin + root.chevron-w) + " " + root.margin + " L " + root.margin + " " + (root.margin + root.chevron-h / 2) + " L " + (root.margin + root.chevron-w) + " " + (root.margin + root.chevron-h);
-        stroke: Ui.icon-ink;
+        stroke: Palette.accent-background;
         stroke-width: root.stroke * 1phx;
         stroke-line-cap: round;
         stroke-line-join: round;
