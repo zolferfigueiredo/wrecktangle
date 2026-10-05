@@ -1,0 +1,37 @@
+name: Translation fix
+description: A string reads wrong or badly in one of the 12 languages.
+labels: ["translation"]
+body:
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language
+      options:
+        - Deutsch
+        - Español
+        - Français
+        - Italiano
+        - Polski
+        - Português (Brasil)
+        - Русский
+        - Українська
+        - 中文
+        - 日本語
+        - 한국어
+        - English
+    validations:
+      required: true
+  - type: textarea
+    id: where
+    attributes:
+      label: Where does it appear?
+      description: Settings tab, tray menu or notification, and the text you see now. A screenshot helps.
+    validations:
+      required: true
+  - type: textarea
+    id: better
+    attributes:
+      label: Suggested wording
+      description: What it should say instead. The strings are in lang/<code>.json if you'd like to open a pull request.
+    validations:
+      required: true
