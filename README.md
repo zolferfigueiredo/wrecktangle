@@ -20,6 +20,10 @@ set of sizes.
   size cycle, and whether Wectangle launches at startup. Changes apply as you
   make them. Settings also names the app that a taken-over shortcut
   overrides, for example "Overrides PowerToys Peek".
+- Twelve languages (German, English, Spanish, French, Italian, Polish,
+  Portuguese, Russian, Ukrainian, Chinese, Japanese and Korean), chosen in
+  Settings under General. The first run follows the Windows display language.
+  Settings, the tray menu and notifications switch as soon as you pick one.
 - Update checks against GitHub Releases, on demand or once a day (see
   Updates).
 - No admin rights required, unless the window you want to move is itself
@@ -91,8 +95,9 @@ git config core.hooksPath .githooks
 ## Configuration
 
 Settings are stored at `%APPDATA%\Wectangle\config.json`. It holds the size
-cycle, the shortcut assigned to each action, `check_updates` (default `true`)
-and `last_update_check` (a Unix time in seconds, maintained by Wectangle).
+cycle, the shortcut assigned to each action, `language` (a two letter code),
+`check_updates` (default `true`) and `last_update_check` (a Unix time in
+seconds, maintained by Wectangle).
 Edit it through the Settings window; a hand-edited file that fails to parse
 falls back to defaults with a notification, and is left untouched until you
 change something in Settings.

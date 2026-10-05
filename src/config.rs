@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::lang;
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
 
@@ -32,17 +33,32 @@ pub fn parse_size(input: &str) -> Result<f64, ParseSizeError> {
     }
 }
 
-pub fn parse_size_list(text: &str) -> Result<Vec<String>, &'static str> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SizeListError {
+    Count,
+    Range,
+}
+
+impl SizeListError {
+    pub fn key(self) -> &'static str {
+        match self {
+            SizeListError::Count => "general.size_error_count",
+            SizeListError::Range => "general.size_error_range",
+        }
+    }
+}
+
+pub fn parse_size_list(text: &str) -> Result<Vec<String>, SizeListError> {
     let entries: Vec<String> = text
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
     if entries.is_empty() || entries.len() > 8 {
-        return Err("Enter 1 to 8 fractions or percentages, separated by commas.");
+        return Err(SizeListError::Count);
     }
     if entries.iter().any(|entry| parse_size(entry).is_err()) {
-        return Err("Each size must be a fraction or percentage between 0 and 1.");
+        return Err(SizeListError::Range);
     }
     Ok(entries)
 }
@@ -99,6 +115,7 @@ pub struct Config {
     pub shortcuts: Shortcuts,
     pub check_updates: bool,
     pub last_update_check: u64,
+    pub language: String,
 }
 
 impl Config {
@@ -124,6 +141,8 @@ struct ConfigFile {
     check_updates: Option<bool>,
     #[serde(default)]
     last_update_check: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    language: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -208,6 +227,10 @@ fn resolve(file: ConfigFile) -> Option<Config> {
         shortcuts,
         check_updates: file.check_updates.unwrap_or(true),
         last_update_check: file.last_update_check.unwrap_or(0),
+        language: file
+            .language
+            .filter(|code| lang::is_supported(code))
+            .unwrap_or_default(),
     })
 }
 
@@ -250,6 +273,7 @@ pub fn to_json_string(config: &Config) -> String {
         }),
         check_updates: Some(config.check_updates),
         last_update_check: Some(config.last_update_check),
+        language: Some(config.language.clone()).filter(|code| !code.is_empty()),
     };
     serde_json::to_string_pretty(&file).expect("config always serializes")
 }
@@ -299,11 +323,34 @@ mod tests {
 
     #[test]
     fn parse_size_list_rejects_empty_oversized_and_invalid_lists() {
-        assert!(parse_size_list("").is_err());
-        assert!(parse_size_list(" , ").is_err());
-        assert!(parse_size_list("1/2, abc").is_err());
-        assert!(parse_size_list("1/2, 150%").is_err());
-        assert!(parse_size_list("1/2,1/3,1/4,1/5,1/6,1/7,1/8,1/9,1/10").is_err());
+        assert_eq!(parse_size_list(""), Err(SizeListError::Count));
+        assert_eq!(parse_size_list(" , "), Err(SizeListError::Count));
+        assert_eq!(parse_size_list("1/2, abc"), Err(SizeListError::Range));
+        assert_eq!(parse_size_list("1/2, 150%"), Err(SizeListError::Range));
+        assert_eq!(
+            parse_size_list("1/2,1/3,1/4,1/5,1/6,1/7,1/8,1/9,1/10"),
+            Err(SizeListError::Count)
+        );
+    }
+
+    #[test]
+    fn language_is_kept_only_when_supported() {
+        let (config, _) = load_from_str(r#"{"language": "de"}"#);
+        assert_eq!(config.language, "de");
+        let (config, _) = load_from_str(r#"{"language": "xx"}"#);
+        assert_eq!(config.language, "");
+        let (config, source) = load_from_str("{}");
+        assert_eq!(config.language, "");
+        assert_eq!(source, Source::Loaded);
+    }
+
+    #[test]
+    fn language_round_trips_and_is_left_out_when_unset() {
+        let mut config = Config::defaults();
+        assert!(!to_json_string(&config).contains("language"));
+        config.language = "ja".to_string();
+        let (loaded, _) = load_from_str(&to_json_string(&config));
+        assert_eq!(loaded.language, "ja");
     }
 
     #[test]

@@ -16,17 +16,15 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SetWindowsHookExW, UnhookWindowsHookEx, WH_KEYBOARD_LL, WM_KEYDOWN, WM_KEYUP, WM_SETICON,
     WM_SYSKEYDOWN, WM_SYSKEYUP,
 };
-use windows::core::{PCWSTR, w};
+use windows::core::PCWSTR;
 
 use crate::config::{self, Config};
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
 use crate::theme;
-use crate::{app, startup, takeover, update};
+use crate::{app, lang, startup, takeover, update};
 
 slint::include_modules!();
-
-const WINDOW_TITLE: PCWSTR = w!("Wectangle Settings");
 
 const MOD_BIT_CTRL: isize = 0x1;
 const MOD_BIT_ALT: isize = 0x2;
@@ -74,6 +72,14 @@ pub fn open() {
 fn create() -> Result<SettingsWindow, slint::PlatformError> {
     drop_raw_keyboard_registration();
     let ui = SettingsWindow::new()?;
+    ui.global::<Tr>()
+        .on_lookup(|key, _revision| lang::t(&key).into());
+    ui.set_language_names(ModelRc::new(VecModel::from(
+        lang::LANGUAGES
+            .iter()
+            .map(|language| SharedString::from(language.name))
+            .collect::<Vec<_>>(),
+    )));
     ui.set_rows(ModelRc::new(VecModel::from(vec![
         ShortcutRow::default();
         Action::ALL.len()
@@ -97,6 +103,7 @@ fn create() -> Result<SettingsWindow, slint::PlatformError> {
         commit(config);
     });
     ui.on_apply_sizes(|text| apply_sizes(&text).into());
+    ui.on_set_language(set_language);
     ui.on_set_startup(set_startup);
     ui.on_set_auto_update(update::set_auto);
     ui.on_check_now(|| {
@@ -139,13 +146,45 @@ fn refresh_all(ui: &SettingsWindow) {
     ui.set_sizes_error(SharedString::new());
     ui.set_startup_enabled(startup::is_enabled());
     ui.set_auto_update(update::auto_enabled());
-    ui.set_version(update::current_version().into());
+    ui.set_language_index(lang::current_index() as i32);
+    ui.set_ui_font(lang::ui_font().into());
     show_update_state(ui);
     refresh_rows(ui);
 }
 
+fn show_texts(ui: &SettingsWindow) {
+    let tr = ui.global::<Tr>();
+    tr.set_revision(tr.get_revision() + 1);
+    ui.set_ui_font(lang::ui_font().into());
+    ui.set_sizes_error(SharedString::new());
+    show_update_state(ui);
+    refresh_rows(ui);
+}
+
+fn set_language(index: i32) {
+    let Some(language) = usize::try_from(index)
+        .ok()
+        .and_then(|index| lang::LANGUAGES.get(index))
+    else {
+        return;
+    };
+    if lang::current_index() == lang::index_of(language.code).unwrap_or_default() {
+        return;
+    }
+    lang::set(language.code);
+    let mut config = app::current_config();
+    config.language = language.code.to_string();
+    commit(config);
+    if let Some(ui) = window() {
+        show_texts(&ui);
+    }
+}
+
 fn show_update_state(ui: &SettingsWindow) {
     let state = update::state();
+    ui.set_about_version(
+        lang::format("about.version", &[("version", update::current_version())]).into(),
+    );
     ui.set_update_status(update::status_line(&state).into());
     ui.set_update_detail(update::status_detail(&state).into());
     ui.set_update_available(matches!(state, update::State::Available { .. }));
@@ -165,9 +204,9 @@ fn shortcut_row(action: Action, hint: Option<&str>) -> ShortcutRow {
         (Some(note), _) => (note, false),
         (None, Some(sc)) => match shortcut::altgr_char(&sc) {
             Some(ch) => (
-                format!(
-                    "Also blocks typing {ch} (AltGr+{})",
-                    shortcut::key_name(&sc)
+                lang::format(
+                    "status.altgr",
+                    &[("char", &ch.to_string()), ("key", &shortcut::key_name(&sc))],
                 ),
                 true,
             ),
@@ -182,7 +221,7 @@ fn shortcut_row(action: Action, hint: Option<&str>) -> ShortcutRow {
         .map(SharedString::from)
         .collect();
     ShortcutRow {
-        label: action.short_label().into(),
+        label: lang::t(action.key()).into(),
         keys: ModelRc::new(VecModel::from(caps)),
         note: note.into(),
         warn,
@@ -224,7 +263,11 @@ fn raise(attempt: u32) {
 
 fn find_window() -> Option<HWND> {
     unsafe {
-        let hwnd = FindWindowW(PCWSTR::null(), WINDOW_TITLE).ok()?;
+        let title: Vec<u16> = lang::t("window.title")
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
+        let hwnd = FindWindowW(PCWSTR::null(), PCWSTR(title.as_ptr())).ok()?;
         let mut pid = 0u32;
         GetWindowThreadProcessId(hwnd, Some(&mut pid));
         (pid == GetCurrentProcessId()).then_some(hwnd)
@@ -260,7 +303,7 @@ fn set_window_icons(hwnd: HWND) {
 fn apply_sizes(text: &str) -> String {
     let sizes = match config::parse_size_list(text) {
         Ok(sizes) => sizes,
-        Err(message) => return message.to_string(),
+        Err(error) => return lang::t(error.key()),
     };
     let mut config = app::current_config();
     if config.sizes != sizes {
@@ -437,7 +480,7 @@ pub fn on_recorder_key(vk: u16, mods: isize) {
     }
 
     if !(ctrl || alt || win) {
-        show_row(&ui, index, Some("Needs at least one of Ctrl, Alt or Win."));
+        show_row(&ui, index, Some(&lang::t("recorder.needs_modifier")));
         return;
     }
 
@@ -454,9 +497,13 @@ pub fn on_recorder_key(vk: u16, mods: isize) {
         .iter()
         .enumerate()
         .find(|&(i, a)| i != index && config.shortcuts.get(*a) == Some(candidate))
-        .map(|(_, a)| a.short_label());
+        .map(|(_, a)| lang::t(a.key()));
     if let Some(label) = duplicate {
-        show_row(&ui, index, Some(&format!("Already used by {label}.")));
+        show_row(
+            &ui,
+            index,
+            Some(&lang::format("recorder.duplicate", &[("action", &label)])),
+        );
         return;
     }
 

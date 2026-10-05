@@ -1,4 +1,4 @@
-import { Button, LineEdit, Palette, ScrollView, Switch } from "std-widgets.slint";
+import { Button, ComboBox, LineEdit, Palette, ScrollView, Switch } from "std-widgets.slint";
 
 export struct ShortcutRow {
     label: string,
@@ -16,6 +16,15 @@ struct RowSpec {
     fw: float,
     fh: float,
     glyph: int,
+}
+
+export global Tr {
+    pure callback lookup(string, int) -> string;
+    in property <int> revision;
+
+    public pure function t(key: string) -> string {
+        return lookup(key, revision);
+    }
 }
 
 global Ui {
@@ -256,14 +265,14 @@ component ShortcutPill inherits Rectangle {
         spacing: 3px;
 
         if root.recording: Text {
-            text: "Press a shortcut... (Esc to cancel)";
+            text: Tr.t("recorder.prompt");
             font-size: 11px;
             color: Palette.accent-background;
             vertical-alignment: center;
         }
 
         if !root.recording && root.keys.length == 0: Text {
-            text: "Click to set";
+            text: Tr.t("recorder.click_to_set");
             font-size: 11px;
             color: Ui.text-tertiary;
             vertical-alignment: center;
@@ -489,12 +498,16 @@ export component SettingsWindow inherits Window {
     in property <string> update-detail;
     in property <bool> update-available;
     in property <bool> update-busy;
-    in property <string> version;
+    in property <string> about-version;
+    in property <string> ui-font;
+    in property <[string]> language-names;
+    in-out property <int> language-index;
     in property <int> theme-override;
     callback record(int);
     callback clear(int);
     callback cancel-recording();
     callback restore-defaults();
+    callback set-language(int);
     callback apply-sizes(string) -> string;
     callback set-startup(bool);
     callback set-auto-update(bool);
@@ -525,7 +538,8 @@ export component SettingsWindow inherits Window {
         { index: 11, fx: 0, fy: 0, fw: 0, fh: 0, glyph: 2 },
     ];
 
-    title: "Wectangle Settings";
+    title: Tr.t("window.title");
+    default-font-family: root.ui-font;
     preferred-width: 640px;
     preferred-height: 682px;
     min-width: 480px;
@@ -554,7 +568,7 @@ export component SettingsWindow inherits Window {
 
             TabButton {
                 height: 34px;
-                text: "Shortcuts";
+                text: Tr.t("tab.shortcuts");
                 selected: root.page == 0;
                 activated => {
                     if (root.page == 1) {
@@ -566,7 +580,7 @@ export component SettingsWindow inherits Window {
 
             TabButton {
                 height: 34px;
-                text: "General";
+                text: Tr.t("tab.general");
                 selected: root.page == 1;
                 activated => {
                     root.page = 1;
@@ -575,7 +589,7 @@ export component SettingsWindow inherits Window {
 
             TabButton {
                 height: 34px;
-                text: "About";
+                text: Tr.t("tab.about");
                 selected: root.page == 2;
                 activated => {
                     if (root.page == 1) {
@@ -598,14 +612,14 @@ export component SettingsWindow inherits Window {
                 alignment: start;
 
                 Text {
-                    text: "Click a shortcut to record a new one. Repeat a shortcut to cycle through sizes. Changes apply right away.";
+                    text: Tr.t("shortcuts.intro");
                     font-size: 12px;
                     color: Ui.text-secondary;
                     wrap: word-wrap;
                 }
 
                 ShortcutGroup {
-                    title: "Halves";
+                    title: Tr.t("group.halves");
                     specs: root.halves;
                     rows: root.rows;
                     record(index) => {
@@ -617,7 +631,7 @@ export component SettingsWindow inherits Window {
                 }
 
                 ShortcutGroup {
-                    title: "Corners";
+                    title: Tr.t("group.corners");
                     specs: root.corners;
                     rows: root.rows;
                     record(index) => {
@@ -629,7 +643,7 @@ export component SettingsWindow inherits Window {
                 }
 
                 ShortcutGroup {
-                    title: "Window";
+                    title: Tr.t("group.window");
                     specs: root.window-actions;
                     rows: root.rows;
                     record(index) => {
@@ -641,7 +655,7 @@ export component SettingsWindow inherits Window {
                 }
 
                 ShortcutGroup {
-                    title: "Displays";
+                    title: Tr.t("group.displays");
                     specs: root.displays;
                     rows: root.rows;
                     record(index) => {
@@ -656,7 +670,7 @@ export component SettingsWindow inherits Window {
                     alignment: start;
 
                     Button {
-                        text: "Restore defaults";
+                        text: Tr.t("button.restore_defaults");
                         clicked => {
                             root.restore-defaults();
                         }
@@ -671,20 +685,36 @@ export component SettingsWindow inherits Window {
                 padding-right: 24px;
                 padding-top: 14px;
                 padding-bottom: 20px;
-                spacing: 10px;
+                spacing: 16px;
                 alignment: start;
+
+                Card {
+                    SettingRow {
+                        title: Tr.t("general.language");
+                        description: Tr.t("general.language_desc");
+
+                        ComboBox {
+                            preferred-width: 190px;
+                            model: root.language-names;
+                            current-index <=> root.language-index;
+                            selected(value) => {
+                                root.set-language(self.current-index);
+                            }
+                        }
+                    }
+                }
 
                 VerticalLayout {
                     spacing: 4px;
 
                     SectionTitle {
-                        text: "Window sizes";
+                        text: Tr.t("group.window_sizes");
                     }
 
                     Card {
                         SettingRow {
-                            title: "Size cycle";
-                            description: "Fractions or percentages, separated by commas. Repeating a shortcut steps through them.";
+                            title: Tr.t("general.size_cycle");
+                            description: Tr.t("general.size_cycle_desc");
 
                             LineEdit {
                                 preferred-width: 190px;
@@ -723,16 +753,16 @@ export component SettingsWindow inherits Window {
                     spacing: 4px;
 
                     SectionTitle {
-                        text: "Startup";
+                        text: Tr.t("group.startup");
                     }
 
                     Card {
                         SettingRow {
-                            title: "Launch at startup";
-                            description: "Start Wectangle when you sign in to Windows.";
+                            title: Tr.t("general.startup");
+                            description: Tr.t("general.startup_desc");
 
                             Switch {
-                                text: self.checked ? "On" : "Off";
+                                text: self.checked ? Tr.t("switch.on") : Tr.t("switch.off");
                                 checked <=> root.startup-enabled;
                                 toggled => {
                                     root.set-startup(self.checked);
@@ -746,16 +776,16 @@ export component SettingsWindow inherits Window {
                     spacing: 4px;
 
                     SectionTitle {
-                        text: "Updates";
+                        text: Tr.t("group.updates");
                     }
 
                     Card {
                         SettingRow {
-                            title: "Check for updates automatically";
-                            description: "Wectangle looks for a new release once a day.";
+                            title: Tr.t("general.auto_update");
+                            description: Tr.t("general.auto_update_desc");
 
                             Switch {
-                                text: self.checked ? "On" : "Off";
+                                text: self.checked ? Tr.t("switch.on") : Tr.t("switch.off");
                                 checked <=> root.auto-update;
                                 toggled => {
                                     root.set-auto-update(self.checked);
@@ -772,7 +802,7 @@ export component SettingsWindow inherits Window {
                                 spacing: 8px;
 
                                 if root.update-available: Button {
-                                    text: "Download";
+                                    text: Tr.t("button.download");
                                     primary: true;
                                     clicked => {
                                         root.download();
@@ -780,7 +810,7 @@ export component SettingsWindow inherits Window {
                                 }
 
                                 Button {
-                                    text: "Check now";
+                                    text: Tr.t("button.check_now");
                                     enabled: !root.update-busy;
                                     clicked => {
                                         root.check-now();
@@ -822,7 +852,7 @@ export component SettingsWindow inherits Window {
                 }
 
                 Text {
-                    text: "Version " + root.version;
+                    text: root.about-version;
                     font-size: 12px;
                     color: Ui.text-secondary;
                     horizontal-alignment: center;
@@ -837,7 +867,7 @@ export component SettingsWindow inherits Window {
                     spacing: 8px;
 
                     Button {
-                        text: "Check for updates...";
+                        text: Tr.t("about.check");
                         enabled: !root.update-busy;
                         clicked => {
                             root.check-now();
@@ -845,7 +875,7 @@ export component SettingsWindow inherits Window {
                     }
 
                     if root.update-available: Button {
-                        text: "Download";
+                        text: Tr.t("button.download");
                         primary: true;
                         clicked => {
                             root.download();
@@ -869,7 +899,7 @@ export component SettingsWindow inherits Window {
                     alignment: center;
 
                     Link {
-                        text: "Website";
+                        text: Tr.t("about.website");
                         url: "https://github.com/zolferfigueiredo/wectangle";
                         open(url) => {
                             root.open-url(url);
@@ -883,9 +913,10 @@ export component SettingsWindow inherits Window {
 
                 HorizontalLayout {
                     alignment: center;
+                    spacing: 4px;
 
                     Text {
-                        text: "Made by ";
+                        text: Tr.t("about.made_by");
                         font-size: 13px;
                         color: Ui.text-secondary;
                     }
@@ -901,9 +932,10 @@ export component SettingsWindow inherits Window {
 
                 HorizontalLayout {
                     alignment: center;
+                    spacing: 4px;
 
                     Text {
-                        text: "Inspired by ";
+                        text: Tr.t("about.inspired_by");
                         font-size: 13px;
                         color: Ui.text-secondary;
                     }
@@ -911,6 +943,25 @@ export component SettingsWindow inherits Window {
                     Link {
                         text: "Rectangle";
                         url: "https://rectangleapp.com";
+                        open(url) => {
+                            root.open-url(url);
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 4px;
+
+                    Text {
+                        text: Tr.t("about.made_with");
+                        font-size: 13px;
+                        color: Ui.text-secondary;
+                    }
+
+                    Link {
+                        text: "Slint";
+                        url: "https://slint.dev";
                         open(url) => {
                             root.open-url(url);
                         }

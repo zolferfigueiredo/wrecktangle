@@ -23,6 +23,7 @@ use windows::Win32::UI::Input::KeyboardAndMouse::VkKeyScanW;
 #[cfg(windows)]
 use windows::core::{PWSTR, w};
 
+use crate::lang;
 use crate::shortcut::Shortcut;
 
 const MAX_FILE_BYTES: u64 = 4 * 1024 * 1024;
@@ -30,18 +31,29 @@ const MAGNIFIER_EXE: &str = "magnify.exe";
 const CLAUDE_EXE: &str = "claude.exe";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OwnerName {
+    Windows(&'static str),
+    Product(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Owner {
-    pub name: String,
+    pub name: OwnerName,
     pub certain: bool,
 }
 
 impl Owner {
     pub fn note(&self) -> String {
-        if self.certain {
-            format!("Overrides {}", self.name)
+        let name = match &self.name {
+            OwnerName::Windows(key) => lang::t(key),
+            OwnerName::Product(name) => name.clone(),
+        };
+        let key = if self.certain {
+            "status.overrides"
         } else {
-            format!("Overrides {} (probably)", self.name)
-        }
+            "status.overrides_probably"
+        };
+        lang::format(key, &[("owner", &name)])
     }
 }
 
@@ -65,26 +77,29 @@ pub fn find_owner(sc: &Shortcut) -> Option<Owner> {
 }
 
 fn resolve(sc: &Shortcut, known: &Known, running: &dyn Fn(&str) -> bool) -> Option<Owner> {
-    let certain = |name: &str| Owner {
-        name: name.to_string(),
-        certain: true,
-    };
-    let probable = |name: &str| Owner {
-        name: name.to_string(),
-        certain: false,
-    };
-
     if let Some((_, name)) = known.apps.iter().find(|(s, _)| s == sc) {
-        return Some(certain(name));
+        return Some(Owner {
+            name: OwnerName::Product(name.clone()),
+            certain: true,
+        });
     }
-    if let Some(name) = windows_builtin(sc) {
-        return Some(certain(name));
+    if let Some(key) = windows_builtin(sc) {
+        return Some(Owner {
+            name: OwnerName::Windows(key),
+            certain: true,
+        });
     }
     if is_magnifier_chord(sc) && running(MAGNIFIER_EXE) {
-        return Some(probable("Windows Magnifier"));
+        return Some(Owner {
+            name: OwnerName::Windows("owner.magnifier"),
+            certain: false,
+        });
     }
     if known.claude_default_possible && is_claude_default(sc) && running(CLAUDE_EXE) {
-        return Some(probable("Claude"));
+        return Some(Owner {
+            name: OwnerName::Product("Claude".to_string()),
+            certain: false,
+        });
     }
     None
 }
@@ -107,34 +122,34 @@ pub fn windows_builtin(sc: &Shortcut) -> Option<&'static str> {
     }
     let arrow = (0x25..=0x28).contains(&sc.vk);
     match (sc.ctrl, sc.alt, sc.shift) {
-        (true, true, true) => Some("Windows Office key"),
+        (true, true, true) => Some("owner.office_key"),
         (false, false, false) => {
             if arrow {
-                Some("Windows Snap")
+                Some("owner.snap")
             } else {
                 win_key_name(sc.vk)
             }
         }
-        (false, true, false) | (false, false, true) if arrow => Some("Windows window management"),
+        (false, true, false) | (false, false, true) if arrow => Some("owner.window_management"),
         (false, false, true) => match sc.vk {
-            0x53 => Some("Windows Snipping Tool"),
-            0x4D => Some("Windows restore minimized windows"),
+            0x53 => Some("owner.snipping_tool"),
+            0x4D => Some("owner.restore_minimized"),
             _ => None,
         },
         (true, false, false) => match sc.vk {
-            0x25 | 0x27 | 0x44 | 0x73 => Some("Windows virtual desktops"),
-            0x43 => Some("Windows color filters"),
-            0x51 => Some("Windows Quick Assist"),
-            0x0D => Some("Windows Narrator"),
+            0x25 | 0x27 | 0x44 | 0x73 => Some("owner.virtual_desktops"),
+            0x43 => Some("owner.color_filters"),
+            0x51 => Some("owner.quick_assist"),
+            0x0D => Some("owner.narrator"),
             _ => None,
         },
         (false, true, false) => match sc.vk {
-            0x52 | 0x47 | 0x2C => Some("Windows Game Bar"),
-            0x42 => Some("Windows HDR toggle"),
+            0x52 | 0x47 | 0x2C => Some("owner.game_bar"),
+            0x42 => Some("owner.hdr_toggle"),
             _ => None,
         },
         (true, false, true) => match sc.vk {
-            0x42 => Some("Windows graphics driver reset"),
+            0x42 => Some("owner.graphics_reset"),
             _ => None,
         },
         _ => None,
@@ -143,37 +158,37 @@ pub fn windows_builtin(sc: &Shortcut) -> Option<&'static str> {
 
 fn win_key_name(vk: u16) -> Option<&'static str> {
     Some(match vk {
-        0x41 => "Windows Quick Settings",
-        0x42 => "Windows notification area",
-        0x44 => "Windows show desktop",
-        0x45 => "Windows File Explorer",
-        0x46 => "Windows Feedback Hub",
-        0x47 => "Windows Game Bar",
-        0x48 => "Windows voice typing",
-        0x49 => "Windows Settings",
-        0x4B => "Windows Cast",
-        0x4D => "Windows minimize all",
-        0x4E => "Windows notification center",
-        0x4F => "Windows orientation lock",
-        0x50 => "Windows Project",
-        0x51 | 0x53 => "Windows Search",
-        0x52 => "Windows Run",
-        0x54 => "Windows taskbar",
-        0x55 => "Windows Accessibility",
-        0x56 => "Windows clipboard history",
-        0x57 => "Windows Widgets",
-        0x58 => "Windows Quick Link menu",
-        0x5A => "Windows Snap layouts",
-        0x20 => "Windows input switcher",
-        0x09 => "Windows Task View",
-        0xBC => "Windows desktop peek",
-        0xBE | 0xBA => "Windows emoji panel",
-        0x24 => "Windows minimize other windows",
-        0x31..=0x39 => "Windows taskbar apps",
-        0xBB | 0xBD | 0x1B => "Windows Magnifier",
-        0x0D => "Windows Narrator",
-        0x2C => "Windows screenshot",
-        0x13 => "Windows system information",
+        0x41 => "owner.quick_settings",
+        0x42 => "owner.notification_area",
+        0x44 => "owner.show_desktop",
+        0x45 => "owner.file_explorer",
+        0x46 => "owner.feedback_hub",
+        0x47 => "owner.game_bar",
+        0x48 => "owner.voice_typing",
+        0x49 => "owner.settings",
+        0x4B => "owner.cast",
+        0x4D => "owner.minimize_all",
+        0x4E => "owner.notification_center",
+        0x4F => "owner.orientation_lock",
+        0x50 => "owner.project",
+        0x51 | 0x53 => "owner.search",
+        0x52 => "owner.run",
+        0x54 => "owner.taskbar",
+        0x55 => "owner.accessibility",
+        0x56 => "owner.clipboard_history",
+        0x57 => "owner.widgets",
+        0x58 => "owner.quick_link_menu",
+        0x5A => "owner.snap_layouts",
+        0x20 => "owner.input_switcher",
+        0x09 => "owner.task_view",
+        0xBC => "owner.desktop_peek",
+        0xBE | 0xBA => "owner.emoji_panel",
+        0x24 => "owner.minimize_others",
+        0x31..=0x39 => "owner.taskbar_apps",
+        0xBB | 0xBD | 0x1B => "owner.magnifier",
+        0x0D => "owner.narrator",
+        0x2C => "owner.screenshot",
+        0x13 => "owner.system_information",
         _ => return None,
     })
 }
@@ -977,28 +992,28 @@ mod tests {
 
     #[test]
     fn built_in_windows_chords_are_named() {
-        assert_eq!(windows_builtin(&sc("Win+Left")), Some("Windows Snap"));
-        assert_eq!(windows_builtin(&sc("Win+Down")), Some("Windows Snap"));
+        assert_eq!(windows_builtin(&sc("Win+Left")), Some("owner.snap"));
+        assert_eq!(windows_builtin(&sc("Win+Down")), Some("owner.snap"));
         assert_eq!(
             windows_builtin(&sc("Alt+Win+Left")),
-            Some("Windows window management")
+            Some("owner.window_management")
         );
         assert_eq!(
             windows_builtin(&sc("Win+Shift+Right")),
-            Some("Windows window management")
+            Some("owner.window_management")
         );
         assert_eq!(
             windows_builtin(&sc("Ctrl+Win+Left")),
-            Some("Windows virtual desktops")
+            Some("owner.virtual_desktops")
         );
         assert_eq!(
             windows_builtin(&sc("Ctrl+Alt+Shift+Win+W")),
-            Some("Windows Office key")
+            Some("owner.office_key")
         );
-        assert_eq!(windows_builtin(&sc("Win+E")), Some("Windows File Explorer"));
+        assert_eq!(windows_builtin(&sc("Win+E")), Some("owner.file_explorer"));
         assert_eq!(
             windows_builtin(&sc("Win+Shift+S")),
-            Some("Windows Snipping Tool")
+            Some("owner.snipping_tool")
         );
     }
 
@@ -1020,7 +1035,7 @@ mod tests {
     fn app_settings_win_and_are_certain() {
         let k = known(vec![(sc("Ctrl+Space"), "PowerToys Peek")], true);
         let owner = resolve(&sc("Ctrl+Space"), &k, &|_| true).unwrap();
-        assert_eq!(owner.name, "PowerToys Peek");
+        assert_eq!(owner.name, OwnerName::Product("PowerToys Peek".to_string()));
         assert!(owner.certain);
         assert_eq!(owner.note(), "Overrides PowerToys Peek");
     }

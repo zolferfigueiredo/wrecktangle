@@ -3,6 +3,8 @@ use std::sync::{Mutex, PoisonError};
 
 use serde::Deserialize;
 
+use crate::lang;
+
 #[cfg(windows)]
 use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
 #[cfg(windows)]
@@ -22,6 +24,15 @@ use windows::core::{PCWSTR, w};
 const DEFAULT_URL: &str = "https://api.github.com/repos/zolferfigueiredo/wectangle/releases/latest";
 const URL_OVERRIDE_VAR: &str = "WECTANGLE_UPDATE_URL";
 const ASSET_NAME: &str = "wectangle.exe";
+
+const BAD_REPLY: &str = "unexpected reply";
+const NO_DOWNLOAD: &str = "no download link";
+const BAD_VERSION: &str = "unreadable release version";
+const TOO_LARGE: &str = "reply too large";
+const NOT_STARTED: &str = "could not start the update check";
+const UNREACHABLE: &str = "could not connect";
+const BAD_URL: &str = "invalid update URL";
+const SERVER_ANSWERED: &str = "server answered ";
 pub const AUTO_CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
 
 #[cfg(windows)]
@@ -59,22 +70,50 @@ pub fn now_unix() -> u64 {
 }
 
 pub fn status_line(state: &State) -> String {
+    let version = current_version();
     match state {
-        State::Idle => format!("Version {}", current_version()),
-        State::Checking => "Checking...".to_string(),
-        State::UpToDate { .. } => format!("Version {} \u{b7} Up to date", current_version()),
-        State::Available { version, .. } => format!("Version {version} is available"),
-        State::NoReleases => "No releases published yet".to_string(),
-        State::Failed(message) => format!("Update check failed: {message}"),
+        State::Idle => lang::format("about.version", &[("version", version)]),
+        State::Checking => lang::t("status.checking"),
+        State::UpToDate { .. } => format!(
+            "{} \u{b7} {}",
+            lang::format("about.version", &[("version", version)]),
+            lang::t("status.up_to_date")
+        ),
+        State::Available { version, .. } => {
+            lang::format("status.version_available", &[("version", version)])
+        }
+        State::NoReleases => lang::t("status.no_releases"),
+        State::Failed(message) => {
+            lang::format("status.failed", &[("reason", &failure_text(message))])
+        }
     }
 }
 
 pub fn status_detail(state: &State) -> String {
     match state {
         State::Idle => String::new(),
-        State::UpToDate { .. } => "Up to date".to_string(),
+        State::UpToDate { .. } => lang::t("status.up_to_date"),
         other => status_line(other),
     }
+}
+
+fn failure_text(message: &str) -> String {
+    let key = match message {
+        BAD_REPLY => "failure.bad_reply",
+        NO_DOWNLOAD => "failure.no_download",
+        BAD_VERSION => "failure.bad_version",
+        TOO_LARGE => "failure.too_large",
+        NOT_STARTED => "failure.not_started",
+        UNREACHABLE => "failure.unreachable",
+        BAD_URL => "failure.bad_url",
+        other => {
+            return match other.strip_prefix(SERVER_ANSWERED) {
+                Some(code) => lang::format("failure.server", &[("code", code)]),
+                None => other.to_string(),
+            };
+        }
+    };
+    lang::t(key)
 }
 
 /// A clock set back past the last check counts as due, so a wrong clock
@@ -197,7 +236,7 @@ struct AssetJson {
 }
 
 pub fn parse_release(json: &str) -> Result<Release, &'static str> {
-    let release: ReleaseJson = serde_json::from_str(json).map_err(|_| "unexpected reply")?;
+    let release: ReleaseJson = serde_json::from_str(json).map_err(|_| BAD_REPLY)?;
     let asset_url = release
         .assets
         .into_iter()
@@ -206,7 +245,7 @@ pub fn parse_release(json: &str) -> Result<Release, &'static str> {
     let url = asset_url
         .or(release.html_url)
         .filter(|u| is_openable_url(u))
-        .ok_or("no download link")?;
+        .ok_or(NO_DOWNLOAD)?;
     Ok(Release {
         tag: release.tag_name,
         url,
@@ -228,7 +267,7 @@ pub fn evaluate(status: u16, body: &str, current: &str, now: u64) -> State {
                 Err(message) => return State::Failed(message.to_string()),
             };
             let Some(latest) = parse_version(&release.tag) else {
-                return State::Failed("unreadable release version".to_string());
+                return State::Failed(BAD_VERSION.to_string());
             };
             if is_newer(&release.tag, current) {
                 State::Available {
@@ -239,7 +278,7 @@ pub fn evaluate(status: u16, body: &str, current: &str, now: u64) -> State {
                 State::UpToDate { checked_at: now }
             }
         }
-        other => State::Failed(format!("server answered {other}")),
+        other => State::Failed(format!("{SERVER_ANSWERED}{other}")),
     }
 }
 
@@ -293,7 +332,7 @@ fn endpoint() -> Result<Url, String> {
     match std::env::var(URL_OVERRIDE_VAR) {
         Ok(value) if !value.trim().is_empty() => parse_url(value.trim(), true)
             .ok_or_else(|| format!("{URL_OVERRIDE_VAR} is not a valid http or https URL")),
-        _ => parse_url(DEFAULT_URL, false).ok_or_else(|| "invalid update URL".to_string()),
+        _ => parse_url(DEFAULT_URL, false).ok_or_else(|| BAD_URL.to_string()),
     }
 }
 
@@ -375,9 +414,7 @@ fn start_check(auto: bool) {
             }
         });
     if spawned.is_err() {
-        set_state(State::Failed(
-            "could not start the update check".to_string(),
-        ));
+        set_state(State::Failed(NOT_STARTED.to_string()));
     }
 }
 
@@ -421,9 +458,6 @@ impl Drop for Handle {
         }
     }
 }
-
-#[cfg(windows)]
-const UNREACHABLE: &str = "could not connect";
 
 #[cfg(windows)]
 fn fetch(url: &Url, agent: &str) -> Result<(u16, String), String> {
@@ -497,7 +531,7 @@ fn fetch(url: &Url, agent: &str) -> Result<(u16, String), String> {
             }
             body.extend_from_slice(&chunk[..read as usize]);
             if body.len() > MAX_BODY_BYTES {
-                return Err("reply too large".to_string());
+                return Err(TOO_LARGE.to_string());
             }
         }
         Ok((status as u16, String::from_utf8_lossy(&body).into_owned()))
@@ -667,7 +701,7 @@ mod tests {
     fn status_line_covers_every_state() {
         let version = current_version();
         assert_eq!(status_line(&State::Idle), format!("Version {version}"));
-        assert_eq!(status_line(&State::Checking), "Checking...");
+        assert_eq!(status_line(&State::Checking), "Checking\u{2026}");
         assert_eq!(
             status_line(&State::UpToDate { checked_at: 5 }),
             format!("Version {version} \u{b7} Up to date")
@@ -693,7 +727,7 @@ mod tests {
             status_detail(&State::UpToDate { checked_at: 5 }),
             "Up to date"
         );
-        assert_eq!(status_detail(&State::Checking), "Checking...");
+        assert_eq!(status_detail(&State::Checking), "Checking\u{2026}");
         assert_eq!(
             status_detail(&State::NoReleases),
             "No releases published yet"
