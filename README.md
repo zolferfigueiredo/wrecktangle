@@ -60,6 +60,8 @@ cargo build --release
 target\release\wectangle.exe
 ```
 
+On Windows, double-click `run.bat` to build and start Wectangle.
+
 Running the executable a second time brings up the Settings window of the
 already running instance instead of starting a second copy.
 
