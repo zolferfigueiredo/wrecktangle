@@ -133,6 +133,7 @@ pub struct Config {
     pub check_updates: bool,
     pub last_update_check: u64,
     pub language: String,
+    pub wrecktangle_colors: bool,
 }
 
 impl Config {
@@ -160,6 +161,8 @@ struct ConfigFile {
     last_update_check: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     language: Option<String>,
+    #[serde(default)]
+    wrecktangle_colors: Option<bool>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -240,6 +243,7 @@ fn resolve(file: ConfigFile) -> Option<Config> {
             .language
             .filter(|code| lang::is_supported(code))
             .unwrap_or_default(),
+        wrecktangle_colors: file.wrecktangle_colors.unwrap_or(false),
     })
 }
 
@@ -283,6 +287,7 @@ pub fn to_json_string(config: &Config) -> String {
         check_updates: Some(config.check_updates),
         last_update_check: Some(config.last_update_check),
         language: Some(config.language.clone()).filter(|code| !code.is_empty()),
+        wrecktangle_colors: Some(config.wrecktangle_colors),
     };
     serde_json::to_string_pretty(&file).expect("config always serializes")
 }
@@ -545,6 +550,16 @@ mod tests {
 
         let (reloaded, source) = load_from_str(&to_json_string(&config));
         assert_eq!(source, Source::Loaded);
+        assert_eq!(reloaded, config);
+    }
+
+    #[test]
+    fn wrecktangle_colors_default_off_and_round_trip() {
+        assert!(!Config::defaults().wrecktangle_colors);
+        let (config, source) = load_from_str(r#"{"wrecktangle_colors": true}"#);
+        assert_eq!(source, Source::Loaded);
+        assert!(config.wrecktangle_colors);
+        let (reloaded, _) = load_from_str(&to_json_string(&config));
         assert_eq!(reloaded, config);
     }
 

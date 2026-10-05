@@ -56,7 +56,7 @@ pub const LANGUAGES: [Language; 12] = [
     Language {
         code: "pt",
         name: "Português",
-        locale: "pt-PT",
+        locale: "pt-BR",
         catalog: include_str!("../lang/pt.json"),
     },
     Language {

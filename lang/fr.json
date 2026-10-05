@@ -29,6 +29,8 @@
   "failure.unreachable": "connexion impossible",
   "general.auto_update": "Rechercher automatiquement les mises à jour",
   "general.auto_update_desc": "Wrecktangle cherche une nouvelle version une fois par jour.",
+  "general.colors": "Utiliser les couleurs de Wrecktangle",
+  "general.colors_desc": "Des accents jaunes à la place du bleu de Windows.",
   "general.language": "Langue",
   "general.language_desc": "Utilisée dans les Réglages, le menu de la zone de notification et les alertes.",
   "general.size_cycle": "Cycle de tailles",
