@@ -1,6 +1,10 @@
-﻿; Installer for Wrecktangle. installer.bat and .github/workflows/release.yml compile this with /DAppVersion.
+﻿; Installer for Wrecktangle. installer.bat and .github/workflows/release.yml compile this with /DAppVersion,
+; and the workflow with /DArch=x64 or /DArch=x86 and /DSourceExe pointing at that architecture's build.
 #ifndef AppVersion
   #define AppVersion "0.0.0"
+#endif
+#ifndef Arch
+  #define Arch "x64"
 #endif
 #ifndef SourceExe
   #define SourceExe "..\target\release\wrecktangle.exe"
@@ -19,12 +23,17 @@ DefaultDirName={autopf}\Wrecktangle
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
+#if Arch == "x86"
+; The 32-bit build runs on any Windows, 64-bit included.
+ArchitecturesAllowed=x86compatible
+#else
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+#endif
 AppMutex=Local\Wrecktangle.SingleInstance
 CloseApplications=yes
 RestartApplications=no
-OutputBaseFilename=Wrecktangle-{#AppVersion}-x64-setup
+OutputBaseFilename=Wrecktangle-{#AppVersion}-{#Arch}-setup
 OutputDir=..\dist
 SetupIconFile=..\assets\wrecktangle.ico
 UninstallDisplayIcon={app}\wrecktangle.exe

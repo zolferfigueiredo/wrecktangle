@@ -37,11 +37,14 @@ fn to_wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-fn copy_to_buf<const N: usize>(buf: &mut [u16; N], text: &str) {
-    let mut wide: Vec<u16> = text.encode_utf16().collect();
-    wide.truncate(N - 1);
-    wide.push(0);
-    buf[..wide.len()].copy_from_slice(&wide);
+// Returns a whole array rather than filling a field in place: on 32-bit
+// Windows NOTIFYICONDATAW is packed, so its fields can't be borrowed.
+fn wide_buf<const N: usize>(text: &str) -> [u16; N] {
+    let mut buf = [0u16; N];
+    for (slot, unit) in buf.iter_mut().zip(text.encode_utf16().take(N - 1)) {
+        *slot = unit;
+    }
+    buf
 }
 
 fn base_nid(hwnd: HWND) -> NOTIFYICONDATAW {
@@ -72,7 +75,7 @@ pub fn add(hwnd: HWND) -> windows::core::Result<()> {
         nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP;
         nid.uCallbackMessage = app::WM_APP_TRAY;
         nid.hIcon = load_icon();
-        copy_to_buf(&mut nid.szTip, "Wrecktangle");
+        nid.szTip = wide_buf("Wrecktangle");
 
         Shell_NotifyIconW(NIM_ADD, &nid).ok()?;
         nid.Anonymous.uVersion = NOTIFYICON_VERSION_4;
@@ -102,8 +105,8 @@ fn show_balloon(hwnd: HWND, title: &str, message: &str) {
     unsafe {
         let mut nid = base_nid(hwnd);
         nid.uFlags = NIF_INFO;
-        copy_to_buf(&mut nid.szInfo, message);
-        copy_to_buf(&mut nid.szInfoTitle, title);
+        nid.szInfo = wide_buf(message);
+        nid.szInfoTitle = wide_buf(title);
         nid.dwInfoFlags = NIIF_INFO;
         let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
     }

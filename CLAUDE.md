@@ -55,10 +55,13 @@ A Rectangle-style keyboard window manager for Windows, in Rust.
 Bump `version` in `Cargo.toml` and in the README's release badge and
 download links (CI checks they all match), merge, then tag `v<version>` on
 `main` and push the tag (the workflow refuses tags that aren't on `main`);
-the Release workflow publishes `Wrecktangle-<version>-x64-setup.exe` and
-`Wrecktangle-<version>-x64.zip`, plus `SHA256SUMS` and `latest.json`. There are
-no unversioned copies. The update check looks for the installer named after
-the release's tag (`installer_name` in `src/update.rs`), so keep that name and
-the workflow in sync. The installer is
+the Release workflow publishes `Wrecktangle-<version>-<arch>-setup.exe` and
+`Wrecktangle-<version>-<arch>.zip` for `x64` (64-bit) and `x86` (32-bit),
+plus `SHA256SUMS` and `latest.json`. There are no unversioned copies. The
+update check looks for the installer named after the release's tag and the
+running build's architecture (`installer_name` and `ARCH` in
+`src/update.rs`), so keep those names and the workflow in sync. The 32-bit
+build differs in places (some Win32 structs are packed, so their fields
+can't be borrowed); CI runs Clippy for it. The installer is
 `installer/wrecktangle.iss`; its Run value name and `AppMutex` must match
 `src/startup.rs` and `src/main.rs`.
