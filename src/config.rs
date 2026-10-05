@@ -33,34 +33,51 @@ pub fn parse_size(input: &str) -> Result<f64, ParseSizeError> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SizeListError {
-    Count,
-    Range,
-}
+pub const SIZE_OPTIONS: [&str; 5] = ["1/2", "2/3", "3/4", "1/4", "1/3"];
+const DEFAULT_SIZE_COUNT: usize = 3;
 
-impl SizeListError {
-    pub fn key(self) -> &'static str {
-        match self {
-            SizeListError::Count => "general.size_error_count",
-            SizeListError::Range => "general.size_error_range",
-        }
+fn size_matches(entry: &str, option: &str) -> bool {
+    match (parse_size(entry), parse_size(option)) {
+        (Ok(a), Ok(b)) => (a - b).abs() < 1e-9,
+        _ => false,
     }
 }
 
-pub fn parse_size_list(text: &str) -> Result<Vec<String>, SizeListError> {
-    let entries: Vec<String> = text
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+// The checked options in list order. Anything that is not one of the five
+// options, by fraction value, is dropped; nothing left means the defaults.
+pub fn normalize_sizes(entries: &[String]) -> Vec<String> {
+    let kept: Vec<String> = SIZE_OPTIONS
+        .iter()
+        .filter(|option| entries.iter().any(|entry| size_matches(entry, option)))
+        .map(|option| option.to_string())
         .collect();
-    if entries.is_empty() || entries.len() > 8 {
-        return Err(SizeListError::Count);
+    if kept.is_empty() {
+        default_size_strings()
+    } else {
+        kept
     }
-    if entries.iter().any(|entry| parse_size(entry).is_err()) {
-        return Err(SizeListError::Range);
+}
+
+pub fn size_checks(entries: &[String]) -> [bool; 5] {
+    SIZE_OPTIONS.map(|option| entries.iter().any(|entry| entry == option))
+}
+
+// Flips one option. The last checked option stays checked.
+pub fn toggle_size(entries: &[String], index: usize) -> Vec<String> {
+    let mut checks = size_checks(entries);
+    let Some(slot) = checks.get(index).copied() else {
+        return entries.to_vec();
+    };
+    if slot && checks.iter().filter(|checked| **checked).count() == 1 {
+        return entries.to_vec();
     }
-    Ok(entries)
+    checks[index] = !slot;
+    SIZE_OPTIONS
+        .iter()
+        .zip(checks)
+        .filter(|(_, checked)| *checked)
+        .map(|(option, _)| option.to_string())
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -174,9 +191,9 @@ struct ShortcutsFile {
 }
 
 fn default_size_strings() -> Vec<String> {
-    ["1/2", "2/3", "1/3", "2/7"]
-        .into_iter()
-        .map(String::from)
+    SIZE_OPTIONS[..DEFAULT_SIZE_COUNT]
+        .iter()
+        .map(|option| option.to_string())
         .collect()
 }
 
@@ -194,15 +211,7 @@ fn resolve_shortcut(raw: Option<String>, default_str: &str) -> Option<Option<Sho
 
 fn resolve(file: ConfigFile) -> Option<Config> {
     let sizes = match file.sizes {
-        Some(list) => {
-            if list.is_empty() || list.len() > 8 {
-                return None;
-            }
-            for s in &list {
-                parse_size(s).ok()?;
-            }
-            list
-        }
+        Some(list) => normalize_sizes(&list),
         None => default_size_strings(),
     };
 
@@ -256,7 +265,7 @@ fn format_opt(shortcut: &Option<Shortcut>) -> String {
 
 pub fn to_json_string(config: &Config) -> String {
     let file = ConfigFile {
-        sizes: Some(config.sizes.clone()),
+        sizes: Some(normalize_sizes(&config.sizes)),
         shortcuts: Some(ShortcutsFile {
             left: Some(format_opt(&config.shortcuts.left)),
             right: Some(format_opt(&config.shortcuts.right)),
@@ -313,23 +322,99 @@ mod tests {
         assert!((f - 0.4).abs() < 1e-9);
     }
 
+    fn sizes(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
     #[test]
-    fn parse_size_list_trims_and_keeps_entries() {
+    fn default_sizes_are_the_first_three_options() {
+        assert_eq!(Config::defaults().sizes, sizes(&["1/2", "2/3", "3/4"]));
+    }
+
+    #[test]
+    fn sizes_are_kept_in_canonical_order() {
         assert_eq!(
-            parse_size_list(" 1/2 , 2/3,40% ,").unwrap(),
-            ["1/2", "2/3", "40%"]
+            normalize_sizes(&sizes(&["1/3", "3/4", "1/2"])),
+            sizes(&["1/2", "3/4", "1/3"])
+        );
+        assert_eq!(
+            normalize_sizes(&sizes(&["1/3", "1/3", "1/4"])),
+            sizes(&["1/4", "1/3"])
         );
     }
 
     #[test]
-    fn parse_size_list_rejects_empty_oversized_and_invalid_lists() {
-        assert_eq!(parse_size_list(""), Err(SizeListError::Count));
-        assert_eq!(parse_size_list(" , "), Err(SizeListError::Count));
-        assert_eq!(parse_size_list("1/2, abc"), Err(SizeListError::Range));
-        assert_eq!(parse_size_list("1/2, 150%"), Err(SizeListError::Range));
+    fn old_sizes_migrate_by_fraction_value() {
+        let (config, source) = load_from_str(r#"{"sizes": ["1/2", "2/3", "2/7", "1/3"]}"#);
+        assert_eq!(source, Source::Loaded);
+        assert_eq!(config.sizes, sizes(&["1/2", "2/3", "1/3"]));
+
+        let (config, _) = load_from_str(r#"{"sizes": ["50%", "0.75", "25 %"]}"#);
+        assert_eq!(config.sizes, sizes(&["1/2", "3/4", "1/4"]));
+    }
+
+    #[test]
+    fn sizes_with_nothing_valid_fall_back_to_the_defaults_without_an_error() {
+        for json in [
+            r#"{"sizes": ["2/7"]}"#,
+            r#"{"sizes": []}"#,
+            r#"{"sizes": ["not a size", "40%"]}"#,
+        ] {
+            let (config, source) = load_from_str(json);
+            assert_eq!(source, Source::Loaded, "{json}");
+            assert_eq!(config.sizes, Config::defaults().sizes, "{json}");
+        }
+    }
+
+    #[test]
+    fn saved_sizes_are_the_checked_subset_in_order() {
+        let mut config = Config::defaults();
+        config.sizes = sizes(&["1/3", "1/2"]);
+        let json = to_json_string(&config);
+        let (loaded, _) = load_from_str(&json);
+        assert_eq!(loaded.sizes, sizes(&["1/2", "1/3"]));
+        assert!(json.find("\"1/2\"").unwrap() < json.find("\"1/3\"").unwrap());
+    }
+
+    #[test]
+    fn the_cycle_steps_through_the_checked_sizes_in_list_order() {
+        let mut config = Config::defaults();
+        config.sizes = sizes(&["1/2", "3/4", "1/3"]);
+        let fractions = config.size_fractions();
+        assert_eq!(fractions.len(), 3);
+        let frame = crate::layout::Rect::new(0, 0, 100, 100);
+        let mut stored = None;
+        let mut visited = Vec::new();
+        for _ in 0..4 {
+            let index =
+                crate::layout::next_cycle_index(stored, Action::Left, frame, fractions.len(), 2);
+            visited.push(fractions[index]);
+            stored = Some((Action::Left, index, frame));
+        }
+        let expected = [0.5, 0.75, 1.0 / 3.0, 0.5];
+        for (got, want) in visited.iter().zip(expected) {
+            assert!((got - want).abs() < 1e-9, "{visited:?}");
+        }
+    }
+
+    #[test]
+    fn toggling_keeps_list_order_and_at_least_one_checked() {
+        let start = sizes(&["1/2", "2/3", "3/4"]);
+        assert_eq!(toggle_size(&start, 4), sizes(&["1/2", "2/3", "3/4", "1/3"]));
+        assert_eq!(toggle_size(&start, 3), sizes(&["1/2", "2/3", "3/4", "1/4"]));
+        assert_eq!(toggle_size(&start, 1), sizes(&["1/2", "3/4"]));
+
+        let one = sizes(&["2/3"]);
+        assert_eq!(toggle_size(&one, 1), one);
+        assert_eq!(toggle_size(&one, 0), sizes(&["1/2", "2/3"]));
+        assert_eq!(toggle_size(&one, 9), one);
+    }
+
+    #[test]
+    fn size_checks_mark_the_checked_options() {
         assert_eq!(
-            parse_size_list("1/2,1/3,1/4,1/5,1/6,1/7,1/8,1/9,1/10"),
-            Err(SizeListError::Count)
+            size_checks(&sizes(&["2/3", "1/3"])),
+            [false, true, false, false, true]
         );
     }
 
@@ -366,7 +451,7 @@ mod tests {
     #[test]
     fn defaults_match_the_documented_table() {
         let config = Config::defaults();
-        assert_eq!(config.sizes, vec!["1/2", "2/3", "1/3", "2/7"]);
+        assert_eq!(config.sizes, vec!["1/2", "2/3", "3/4"]);
         assert_eq!(config.shortcuts.left, shortcut::parse("Ctrl+Alt+Left").ok());
         assert_eq!(
             config.shortcuts.right,
@@ -479,20 +564,7 @@ mod tests {
 
     #[test]
     fn unparseable_value_is_invalid_and_falls_back_to_defaults() {
-        let (config, source) = load_from_str(r#"{"sizes": ["not a size"]}"#);
-        assert_eq!(source, Source::Invalid);
-        assert_eq!(config, Config::defaults());
-
         let (config, source) = load_from_str(r#"{"shortcuts": {"left": "NotAKey"}}"#);
-        assert_eq!(source, Source::Invalid);
-        assert_eq!(config, Config::defaults());
-    }
-
-    #[test]
-    fn too_many_sizes_is_invalid() {
-        let sizes: Vec<String> = (1..=9).map(|i| format!("1/{}", i + 10)).collect();
-        let json = serde_json::json!({ "sizes": sizes }).to_string();
-        let (config, source) = load_from_str(&json);
         assert_eq!(source, Source::Invalid);
         assert_eq!(config, Config::defaults());
     }

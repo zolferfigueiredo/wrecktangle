@@ -1,4 +1,4 @@
-import { Button, ComboBox, LineEdit, Palette, ScrollView, Switch } from "std-widgets.slint";
+import { Button, CheckBox, ComboBox, Palette, ScrollView, Switch } from "std-widgets.slint";
 
 export struct ShortcutRow {
     label: string,
@@ -7,6 +7,12 @@ export struct ShortcutRow {
     warn: bool,
     recording: bool,
     hint: string,
+}
+
+export struct SizeOption {
+    label: string,
+    checked: bool,
+    locked: bool,
 }
 
 struct RowSpec {
@@ -517,8 +523,7 @@ component SettingRow inherits Rectangle {
 
 export component SettingsWindow inherits Window {
     in property <[ShortcutRow]> rows;
-    in-out property <string> sizes-text;
-    in-out property <string> sizes-error;
+    in property <[SizeOption]> size-options;
     in-out property <bool> startup-enabled;
     in-out property <bool> auto-update;
     in property <string> update-status;
@@ -535,7 +540,7 @@ export component SettingsWindow inherits Window {
     callback cancel-recording();
     callback restore-defaults();
     callback set-language(int);
-    callback apply-sizes(string) -> string;
+    callback toggle-size(int);
     callback set-startup(bool);
     callback set-auto-update(bool);
     callback check-now();
@@ -598,9 +603,6 @@ export component SettingsWindow inherits Window {
                 text: Tr.t("tab.shortcuts");
                 selected: root.page == 0;
                 activated => {
-                    if (root.page == 1) {
-                        root.sizes-error = root.apply-sizes(root.sizes-text);
-                    }
                     root.page = 0;
                 }
             }
@@ -619,9 +621,6 @@ export component SettingsWindow inherits Window {
                 text: Tr.t("tab.about");
                 selected: root.page == 2;
                 activated => {
-                    if (root.page == 1) {
-                        root.sizes-error = root.apply-sizes(root.sizes-text);
-                    }
                     root.page = 2;
                 }
             }
@@ -742,35 +741,23 @@ export component SettingsWindow inherits Window {
                         SettingRow {
                             title: Tr.t("general.size_cycle");
                             description: Tr.t("general.size_cycle_desc");
-
-                            LineEdit {
-                                preferred-width: 190px;
-                                placeholder-text: "1/2, 2/3, 1/3";
-                                text <=> root.sizes-text;
-                                edited => {
-                                    root.sizes-error = "";
-                                }
-                                accepted => {
-                                    root.sizes-error = root.apply-sizes(self.text);
-                                }
-                                changed has-focus => {
-                                    if (!self.has-focus) {
-                                        root.sizes-error = root.apply-sizes(self.text);
-                                    }
-                                }
-                            }
                         }
 
-                        if root.sizes-error != "": HorizontalLayout {
+                        HorizontalLayout {
                             padding-left: 16px;
                             padding-right: 16px;
                             padding-bottom: 12px;
+                            spacing: 20px;
+                            alignment: start;
 
-                            Text {
-                                text: root.sizes-error;
-                                font-size: 12px;
-                                color: Ui.error;
-                                wrap: word-wrap;
+                            for option[i] in root.size-options: CheckBox {
+                                text: option.label;
+                                checked: option.checked;
+                                enabled: !option.locked;
+                                toggled => {
+                                    root.toggle-size(i);
+                                    self.checked = option.checked;
+                                }
                             }
                         }
                     }

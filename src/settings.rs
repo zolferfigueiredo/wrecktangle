@@ -80,6 +80,10 @@ fn create() -> Result<SettingsWindow, slint::PlatformError> {
             .map(|language| SharedString::from(language.name))
             .collect::<Vec<_>>(),
     )));
+    ui.set_size_options(ModelRc::new(VecModel::from(vec![
+        SizeOption::default();
+        config::SIZE_OPTIONS.len()
+    ])));
     ui.set_rows(ModelRc::new(VecModel::from(vec![
         ShortcutRow::default();
         Action::ALL.len()
@@ -102,7 +106,7 @@ fn create() -> Result<SettingsWindow, slint::PlatformError> {
         config.shortcuts = Config::defaults().shortcuts;
         commit(config);
     });
-    ui.on_apply_sizes(|text| apply_sizes(&text).into());
+    ui.on_toggle_size(on_size_toggled);
     ui.on_set_language(set_language);
     ui.on_set_startup(set_startup);
     ui.on_set_auto_update(update::set_auto);
@@ -114,9 +118,6 @@ fn create() -> Result<SettingsWindow, slint::PlatformError> {
     ui.on_open_url(|url| update::open_url(&url));
     ui.window().on_close_requested(|| {
         cancel_recording();
-        if let Some(ui) = window() {
-            apply_sizes(&ui.get_sizes_text());
-        }
         CloseRequestResponse::HideWindow
     });
     Ok(ui)
@@ -141,9 +142,7 @@ fn drop_raw_keyboard_registration() {
 }
 
 fn refresh_all(ui: &SettingsWindow) {
-    let config = app::current_config();
-    ui.set_sizes_text(config.sizes.join(", ").into());
-    ui.set_sizes_error(SharedString::new());
+    show_sizes(ui);
     ui.set_startup_enabled(startup::is_enabled());
     ui.set_auto_update(update::auto_enabled());
     ui.set_language_index(lang::current_index() as i32);
@@ -156,7 +155,6 @@ fn show_texts(ui: &SettingsWindow) {
     let tr = ui.global::<Tr>();
     tr.set_revision(tr.get_revision() + 1);
     ui.set_ui_font(lang::ui_font().into());
-    ui.set_sizes_error(SharedString::new());
     show_update_state(ui);
     refresh_rows(ui);
 }
@@ -300,17 +298,33 @@ fn set_window_icons(hwnd: HWND) {
     }
 }
 
-fn apply_sizes(text: &str) -> String {
-    let sizes = match config::parse_size_list(text) {
-        Ok(sizes) => sizes,
-        Err(error) => return lang::t(error.key()),
-    };
+fn show_sizes(ui: &SettingsWindow) {
+    let sizes = app::current_config().sizes;
+    let checks = config::size_checks(&sizes);
+    let checked_count = checks.iter().filter(|checked| **checked).count();
+    let model = ui.get_size_options();
+    for (index, label) in config::SIZE_OPTIONS.iter().enumerate() {
+        model.set_row_data(
+            index,
+            SizeOption {
+                label: SharedString::from(*label),
+                checked: checks[index],
+                locked: checks[index] && checked_count == 1,
+            },
+        );
+    }
+}
+
+fn on_size_toggled(index: i32) {
     let mut config = app::current_config();
-    if config.sizes != sizes {
-        config.sizes = sizes;
+    let updated = config::toggle_size(&config.sizes, usize::try_from(index).unwrap_or(usize::MAX));
+    if updated != config.sizes {
+        config.sizes = updated;
         commit(config);
     }
-    String::new()
+    if let Some(ui) = window() {
+        show_sizes(&ui);
+    }
 }
 
 fn set_startup(enable: bool) {
