@@ -28,6 +28,9 @@ slint::include_modules!();
 
 const WINDOW_TITLE: PCWSTR = w!("Wectangle Settings");
 
+const REPO_URL: &str = "https://github.com/zolferfigueiredo/wectangle";
+const ISSUES_URL: &str = "https://github.com/zolferfigueiredo/wectangle/issues";
+
 const MOD_BIT_CTRL: isize = 0x1;
 const MOD_BIT_ALT: isize = 0x2;
 const MOD_BIT_SHIFT: isize = 0x4;
@@ -104,6 +107,8 @@ fn create() -> Result<SettingsWindow, slint::PlatformError> {
         on_update_state_changed();
     });
     ui.on_download(update::open_download);
+    ui.on_open_github(|| update::open_url(REPO_URL));
+    ui.on_report_issue(|| update::open_url(ISSUES_URL));
     ui.window().on_close_requested(|| {
         cancel_recording();
         if let Some(ui) = window() {
@@ -138,7 +143,7 @@ fn refresh_all(ui: &SettingsWindow) {
     ui.set_sizes_error(SharedString::new());
     ui.set_startup_enabled(startup::is_enabled());
     ui.set_auto_update(update::auto_enabled());
-    ui.set_version_label(format!("Wectangle {}", update::current_version()).into());
+    ui.set_version(update::current_version().into());
     show_update_state(ui);
     refresh_rows(ui);
 }
@@ -146,6 +151,7 @@ fn refresh_all(ui: &SettingsWindow) {
 fn show_update_state(ui: &SettingsWindow) {
     let state = update::state();
     ui.set_update_status(update::status_line(&state).into());
+    ui.set_update_detail(update::status_detail(&state).into());
     ui.set_update_available(matches!(state, update::State::Available { .. }));
     ui.set_update_busy(matches!(state, update::State::Checking));
 }
@@ -180,6 +186,7 @@ fn shortcut_row(action: Action, hint: Option<&str>) -> ShortcutRow {
         .map(SharedString::from)
         .collect();
     ShortcutRow {
+        label: action.short_label().into(),
         keys: ModelRc::new(VecModel::from(caps)),
         note: note.into(),
         warn,
@@ -451,7 +458,7 @@ pub fn on_recorder_key(vk: u16, mods: isize) {
         .iter()
         .enumerate()
         .find(|&(i, a)| i != index && config.shortcuts.get(*a) == Some(candidate))
-        .map(|(_, a)| a.label());
+        .map(|(_, a)| a.short_label());
     if let Some(label) = duplicate {
         show_row(&ui, index, Some(&format!("Already used by {label}.")));
         return;

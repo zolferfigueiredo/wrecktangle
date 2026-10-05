@@ -69,6 +69,14 @@ pub fn status_line(state: &State) -> String {
     }
 }
 
+pub fn status_detail(state: &State) -> String {
+    match state {
+        State::Idle => String::new(),
+        State::UpToDate { .. } => "Up to date".to_string(),
+        other => status_line(other),
+    }
+}
+
 /// A clock set back past the last check counts as due, so a wrong clock
 /// cannot suppress checks indefinitely.
 pub fn auto_check_due(last_check: u64, now: u64) -> bool {
@@ -311,13 +319,17 @@ pub fn check_auto() {
 
 #[cfg(windows)]
 pub fn open_download() {
-    let State::Available { url, .. } = state() else {
-        return;
-    };
-    if !is_openable_url(&url) {
+    if let State::Available { url, .. } = state() {
+        open_url(&url);
+    }
+}
+
+#[cfg(windows)]
+pub fn open_url(url: &str) {
+    if !is_openable_url(url) {
         return;
     }
-    let wide = to_wide(&url);
+    let wide = to_wide(url);
     unsafe {
         ShellExecuteW(
             None,
@@ -671,6 +683,20 @@ mod tests {
         assert_eq!(
             status_line(&State::Failed("could not connect".to_string())),
             "Update check failed: could not connect"
+        );
+    }
+
+    #[test]
+    fn status_detail_leaves_out_the_current_version() {
+        assert_eq!(status_detail(&State::Idle), "");
+        assert_eq!(
+            status_detail(&State::UpToDate { checked_at: 5 }),
+            "Up to date"
+        );
+        assert_eq!(status_detail(&State::Checking), "Checking...");
+        assert_eq!(
+            status_detail(&State::NoReleases),
+            "No releases published yet"
         );
     }
 

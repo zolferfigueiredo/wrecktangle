@@ -79,6 +79,23 @@ impl Action {
             Action::PreviousDisplay => "Previous display",
         }
     }
+
+    pub fn short_label(&self) -> &'static str {
+        match self {
+            Action::Left => "Left",
+            Action::Right => "Right",
+            Action::Top => "Top",
+            Action::Bottom => "Bottom",
+            Action::TopLeft => "Top left",
+            Action::TopRight => "Top right",
+            Action::BottomLeft => "Bottom left",
+            Action::BottomRight => "Bottom right",
+            Action::Maximize => "Maximize / restore",
+            Action::Center => "Center",
+            Action::NextDisplay => "Next display",
+            Action::PreviousDisplay => "Previous display",
+        }
+    }
 }
 
 fn round_frac(total: i32, fraction: f64) -> i32 {
@@ -225,6 +242,15 @@ pub fn wrap_monitor_index(current: usize, count: usize, forward: bool) -> usize 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_labels_are_unique_and_not_empty() {
+        let mut seen = std::collections::HashSet::new();
+        for action in Action::ALL {
+            assert!(!action.short_label().is_empty());
+            assert!(seen.insert(action.short_label()));
+        }
+    }
 
     const MONITOR_0: Rect = Rect {
         x: 0,
