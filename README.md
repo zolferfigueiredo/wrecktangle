@@ -5,6 +5,22 @@ moves and resizes the focused window with global keyboard shortcuts: no
 dragging, no snap zones. Repeating a shortcut cycles through a configurable
 set of sizes.
 
+## Inspired by Rectangle
+
+[Rectangle](https://rectangleapp.com) is an open-source window manager for
+macOS by Ryan Hanson ([rxhanson/Rectangle](https://github.com/rxhanson/Rectangle)).
+It moves and resizes windows with keyboard shortcuts and with snap areas,
+which snap a window when you drag it to a screen edge.
+
+Wectangle brings the keyboard part of Rectangle to Windows 10 and 11: the same
+kinds of actions (halves, corners, maximize, center, next or previous
+display) and repeated presses that cycle through sizes. Snap areas are left
+out on purpose.
+
+It also takes over shortcuts that Windows already uses, which Rectangle has no
+need to do on macOS. Wectangle is an independent project and shares no code
+with Rectangle.
+
 ## Features
 
 - Global shortcuts to snap the focused window to a side, a corner, the top,
@@ -157,6 +173,8 @@ check on demand.
   work.
 
 ## Credits
+
+Wectangle is inspired by [Rectangle](https://rectangleapp.com) by Ryan Hanson.
 
 The Settings window is built with [Slint](https://slint.dev).
 
