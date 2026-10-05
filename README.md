@@ -12,16 +12,16 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.3.0-blue" alt="Latest release"></a>
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.3.1-blue" alt="Latest release"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024%20edition-orange" alt="Rust 2024 edition"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue" alt="Windows 10 or 11">
   <a href="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml"><img src="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.0/Wrecktangle-0.3.0-x64-setup.exe"><b>Download for Windows</b></a>
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.1/Wrecktangle-0.3.1-x64-setup.exe"><b>Download for Windows</b></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.0/Wrecktangle-0.3.0-x64.zip">Portable zip</a>
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.1/Wrecktangle-0.3.1-x64.zip">Portable zip</a>
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@
 
 ## Install
 
-1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.0/Wrecktangle-0.3.0-x64-setup.exe)
+1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.1/Wrecktangle-0.3.1-x64-setup.exe)
    and run it. It installs for your user only, into
    `%LOCALAPPDATA%\Programs\Wrecktangle`, and never asks for admin rights. It
    isn't code signed yet, so if Windows SmartScreen says it protected your PC,
@@ -40,7 +40,7 @@
 3. Press Ctrl+Alt+Left. The focused window fills the left half of its screen.
    Press it again for two thirds, and again for three quarters.
 
-Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.0/Wrecktangle-0.3.0-x64.zip):
+Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.1/Wrecktangle-0.3.1-x64.zip):
 put `wrecktangle.exe` somewhere permanent, run it from there, and turn on
 **Launch at startup** from the tray menu.
 
