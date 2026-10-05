@@ -287,9 +287,32 @@ pub fn to_json_string(config: &Config) -> String {
     serde_json::to_string_pretty(&file).expect("config always serializes")
 }
 
+// The app was called Wectangle before; its settings folder kept that name.
+const LEGACY_DIR: &str = "Wectangle";
+
 pub fn config_path() -> PathBuf {
-    let appdata = std::env::var("APPDATA").expect("APPDATA must be set on Windows");
-    Path::new(&appdata).join("Wectangle").join("config.json")
+    appdata().join("Wrecktangle").join("config.json")
+}
+
+pub fn legacy_config_path() -> PathBuf {
+    appdata().join(LEGACY_DIR).join("config.json")
+}
+
+fn appdata() -> PathBuf {
+    PathBuf::from(std::env::var("APPDATA").expect("APPDATA must be set on Windows"))
+}
+
+/// Copies the config from `legacy` to `path` when only the legacy one exists,
+/// leaving the legacy file in place. Returns whether it copied.
+pub fn migrate_legacy(legacy: &Path, path: &Path) -> std::io::Result<bool> {
+    if path.exists() || !legacy.exists() {
+        return Ok(false);
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::copy(legacy, path)?;
+    Ok(true)
 }
 
 pub fn load(path: &Path) -> (Config, Source) {
@@ -571,7 +594,7 @@ mod tests {
 
     #[test]
     fn save_and_load_round_trip() {
-        let dir = std::env::temp_dir().join(format!("wectangle-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("wrecktangle-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.json");
 
@@ -587,10 +610,59 @@ mod tests {
     #[test]
     fn load_reports_missing_file() {
         let dir =
-            std::env::temp_dir().join(format!("wectangle-test-missing-{}", std::process::id()));
+            std::env::temp_dir().join(format!("wrecktangle-test-missing-{}", std::process::id()));
         let path = dir.join("config.json");
         let (config, source) = load(&path);
         assert_eq!(source, Source::Missing);
         assert_eq!(config, Config::defaults());
+    }
+
+    fn migrate_dirs(name: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let root =
+            std::env::temp_dir().join(format!("wrecktangle-test-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&root).ok();
+        let legacy = root.join("Wectangle").join("config.json");
+        let path = root.join("Wrecktangle").join("config.json");
+        (root, legacy, path)
+    }
+
+    #[test]
+    fn migrate_legacy_copies_the_old_config() {
+        let (root, legacy, path) = migrate_dirs("migrate-copy");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(&legacy, r#"{"sizes": ["1/2"]}"#).unwrap();
+
+        assert!(migrate_legacy(&legacy, &path).unwrap());
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            r#"{"sizes": ["1/2"]}"#
+        );
+        assert!(legacy.exists());
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn migrate_legacy_keeps_an_existing_config() {
+        let (root, legacy, path) = migrate_dirs("migrate-keep");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&legacy, "old").unwrap();
+        std::fs::write(&path, "new").unwrap();
+
+        assert!(!migrate_legacy(&legacy, &path).unwrap());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new");
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn migrate_legacy_without_an_old_config_does_nothing() {
+        let (root, legacy, path) = migrate_dirs("migrate-none");
+
+        assert!(!migrate_legacy(&legacy, &path).unwrap());
+        assert!(!path.exists());
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }

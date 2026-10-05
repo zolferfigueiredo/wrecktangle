@@ -276,7 +276,7 @@ fn set_window_icons(hwnd: HWND) {
     unsafe {
         let hinstance = GetModuleHandleW(None).unwrap_or_default();
         // MAKEINTRESOURCEW(1): the pointer value itself is resource id 1
-        // (assets/wectangle.rc), not a real memory address.
+        // (assets/wrecktangle.rc), not a real memory address.
         #[allow(clippy::manual_dangling_ptr)]
         let name = PCWSTR(1usize as *const u16);
         if let Ok(big) = LoadIconMetric(Some(hinstance.into()), name, LIM_LARGE) {

@@ -30,6 +30,7 @@ use windows::Win32::System::Threading::CreateMutexW;
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{
     AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId, PostMessageW,
+    SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_CLOSE,
 };
 #[cfg(windows)]
 use windows::core::w;
@@ -37,7 +38,7 @@ use windows::core::w;
 #[cfg(windows)]
 fn main() {
     unsafe {
-        let mutex = CreateMutexW(None, true, w!("Local\\Wectangle.SingleInstance"));
+        let mutex = CreateMutexW(None, true, w!("Local\\Wrecktangle.SingleInstance"));
         let already_running =
             mutex.is_ok() && windows::Win32::Foundation::GetLastError() == ERROR_ALREADY_EXISTS;
 
@@ -54,6 +55,8 @@ fn main() {
             return;
         }
 
+        close_legacy_instance();
+
         let Ok(_hwnd) = app::init() else {
             if let Ok(handle) = mutex {
                 let _ = CloseHandle(handle);
@@ -67,6 +70,26 @@ fn main() {
 
         if let Ok(handle) = mutex {
             let _ = CloseHandle(handle);
+        }
+    }
+}
+
+/// Quits a copy still running under the app's earlier name, Wectangle, which
+/// holds the same hotkeys. WM_CLOSE is its tray Quit path, and its hotkeys are
+/// unregistered by the time SendMessageTimeoutW returns.
+#[cfg(windows)]
+fn close_legacy_instance() {
+    unsafe {
+        if let Ok(hwnd) = FindWindowW(w!("WectangleMainWindow"), None) {
+            let _ = SendMessageTimeoutW(
+                hwnd,
+                WM_CLOSE,
+                WPARAM(0),
+                LPARAM(0),
+                SMTO_ABORTIFHUNG,
+                5000,
+                None,
+            );
         }
     }
 }

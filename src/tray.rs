@@ -57,7 +57,7 @@ fn load_icon() -> HICON {
     unsafe {
         let hinstance = GetModuleHandleW(None).unwrap_or_default();
         // MAKEINTRESOURCEW(1): the pointer value itself is resource id 1
-        // (assets/wectangle.rc), not a real memory address.
+        // (assets/wrecktangle.rc), not a real memory address.
         #[allow(clippy::manual_dangling_ptr)]
         let name = PCWSTR(1usize as *const u16);
         LoadIconMetric(Some(hinstance.into()), name, LIM_SMALL).unwrap_or_default()
@@ -72,7 +72,7 @@ pub fn add(hwnd: HWND) -> windows::core::Result<()> {
         nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP;
         nid.uCallbackMessage = app::WM_APP_TRAY;
         nid.hIcon = load_icon();
-        copy_to_buf(&mut nid.szTip, "Wectangle");
+        copy_to_buf(&mut nid.szTip, "Wrecktangle");
 
         Shell_NotifyIconW(NIM_ADD, &nid).ok()?;
         nid.Anonymous.uVersion = NOTIFYICON_VERSION_4;

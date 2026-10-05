@@ -1,4 +1,4 @@
-# Wectangle
+# Wrecktangle
 
 A Rectangle-style keyboard window manager for Windows, in Rust.
 
@@ -31,17 +31,24 @@ A Rectangle-style keyboard window manager for Windows, in Rust.
 - Owner lookups (`src/owners.rs`) read hotkey fields only. Never read, log or
   store other keys from those files (Twinkle Tray `udpKey`, tokens in the
   Claude config).
+- The app was called Wectangle before. That name stays on purpose in the
+  migration code only: `LEGACY_DIR` (`config.rs`), `LEGACY_VALUE_NAME`
+  (`startup.rs`) and `close_legacy_instance` (`main.rs`). Don't rename them.
+- `assets/make-icon.ps1` draws the logo from its own copy of the geometry in
+  `assets/wrecktangle.svg`. Change both together, then run
+  `pwsh assets/make-icon.ps1` to rebuild `wrecktangle.ico` and
+  `wrecktangle-256.png`.
 
 ## Developer overrides
 
-- `WECTANGLE_THEME=light|dark` forces the Settings theme.
-- `WECTANGLE_UPDATE_URL` replaces the GitHub releases API URL for the update
+- `WRECKTANGLE_THEME=light|dark` forces the Settings theme.
+- `WRECKTANGLE_UPDATE_URL` replaces the GitHub releases API URL for the update
   check; plain `http://` is accepted only through it. Use it with a local
-  server. A second `wectangle.exe` does not start: it only opens Settings in
+  server. A second `wrecktangle.exe` does not start: it only opens Settings in
   the running instance, so quit that one before trying a new build.
 
 ## Releasing
 
 Bump `version` in `Cargo.toml`, tag `v<version>` and push the tag; the
-Release workflow publishes `wectangle.exe`, which the update check looks
+Release workflow publishes `wrecktangle.exe`, which the update check looks
 for.

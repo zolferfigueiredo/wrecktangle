@@ -19,7 +19,7 @@ use crate::shortcut::{self, Shortcut};
 use crate::theme;
 use crate::{owners, takeover, tray, update, window_ops};
 
-pub const WINDOW_CLASS_NAME: PCWSTR = w!("WectangleMainWindow");
+pub const WINDOW_CLASS_NAME: PCWSTR = w!("WrecktangleMainWindow");
 pub const WM_APP_TRAY: u32 = WM_APP + 1;
 pub const WM_APP_OPEN_SETTINGS: u32 = WM_APP + 2;
 pub const WM_APP_RECORDER_KEY: u32 = WM_APP + 3;
@@ -74,7 +74,7 @@ pub fn init() -> windows::core::Result<HWND> {
         let hwnd = CreateWindowExW(
             WS_EX_TOOLWINDOW,
             WINDOW_CLASS_NAME,
-            w!("Wectangle"),
+            w!("Wrecktangle"),
             WINDOW_STYLE(0),
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -87,6 +87,8 @@ pub fn init() -> windows::core::Result<HWND> {
         )?;
 
         let path = config::config_path();
+        let _ = config::migrate_legacy(&config::legacy_config_path(), &path);
+        crate::startup::migrate_legacy();
         let (mut config, source) = config::load(&path);
         let language_unset = config.language.is_empty();
         if language_unset {
@@ -131,10 +133,10 @@ pub fn init() -> windows::core::Result<HWND> {
         );
 
         if source == config::Source::Invalid {
-            tray::notify(hwnd, "Wectangle", &lang::t("notify.config_invalid"));
+            tray::notify(hwnd, "Wrecktangle", &lang::t("notify.config_invalid"));
         }
         if !failed.is_empty() {
-            tray::notify(hwnd, "Wectangle", &failed_message(&failed));
+            tray::notify(hwnd, "Wrecktangle", &failed_message(&failed));
         }
 
         Ok(hwnd)
@@ -230,7 +232,7 @@ fn notify_update_available(hwnd: HWND) {
     if !already_told {
         tray::notify_update(
             hwnd,
-            "Wectangle",
+            "Wrecktangle",
             &lang::format("notify.update_available", &[("version", &version)]),
         );
     }
@@ -354,7 +356,7 @@ fn run_action(hwnd: HWND, action: Action) {
         && let window_ops::ActionResult::AdminBlocked = window_ops::apply_action(action, &config)
         && !mark_admin_notice_shown()
     {
-        tray::notify(hwnd, "Wectangle", &lang::t("notify.admin_blocked"));
+        tray::notify(hwnd, "Wrecktangle", &lang::t("notify.admin_blocked"));
     }
 }
 
