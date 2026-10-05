@@ -30,7 +30,7 @@
   "general.auto_update": "Check for updates automatically",
   "general.auto_update_desc": "Wrecktangle looks for a new release once a day.",
   "general.colors": "Use Wrecktangle colors",
-  "general.colors_desc": "Yellow highlights instead of the Windows blue.",
+  "general.colors_desc": "Yellow highlights, like the Wrecktangle logo.",
   "general.language": "Language",
   "general.language_desc": "Used in Settings, the tray menu and notifications.",
   "general.size_cycle": "Size cycle",

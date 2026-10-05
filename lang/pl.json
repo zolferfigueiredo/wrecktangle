@@ -30,7 +30,7 @@
   "general.auto_update": "Sprawdzaj uaktualnienia automatycznie",
   "general.auto_update_desc": "Wrecktangle szuka nowej wersji raz dziennie.",
   "general.colors": "Używaj kolorów Wrecktangle",
-  "general.colors_desc": "Żółte akcenty zamiast niebieskiego z Windows.",
+  "general.colors_desc": "Żółte akcenty, jak w logo Wrecktangle.",
   "general.language": "Język",
   "general.language_desc": "Używany w Ustawieniach, menu w zasobniku i powiadomieniach.",
   "general.size_cycle": "Cykl rozmiarów",

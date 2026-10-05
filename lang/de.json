@@ -30,7 +30,7 @@
   "general.auto_update": "Automatisch nach Updates suchen",
   "general.auto_update_desc": "Wrecktangle sucht einmal am Tag nach einer neuen Version.",
   "general.colors": "Wrecktangle-Farben verwenden",
-  "general.colors_desc": "Gelbe Akzente statt des Windows-Blaus.",
+  "general.colors_desc": "Gelbe Akzente wie im Wrecktangle-Logo.",
   "general.language": "Sprache",
   "general.language_desc": "Gilt für die Einstellungen, das Infobereich-Menü und Hinweise.",
   "general.size_cycle": "Größenfolge",

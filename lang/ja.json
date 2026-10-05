@@ -30,7 +30,7 @@
   "general.auto_update": "アップデートを自動で確認",
   "general.auto_update_desc": "Wrecktangle は 1 日に 1 回、新しいバージョンを確認します。",
   "general.colors": "Wrecktangle の配色を使う",
-  "general.colors_desc": "Windows の青の代わりに黄色のアクセントを使います。",
+  "general.colors_desc": "Wrecktangle のロゴのような黄色のアクセントを使います。",
   "general.language": "言語",
   "general.language_desc": "設定、トレイのメニュー、通知で使われます。",
   "general.size_cycle": "サイズの切り替え",

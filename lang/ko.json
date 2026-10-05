@@ -30,7 +30,7 @@
   "general.auto_update": "업데이트 자동 확인",
   "general.auto_update_desc": "Wrecktangle이 하루에 한 번 새 버전을 확인합니다.",
   "general.colors": "Wrecktangle 색상 사용",
-  "general.colors_desc": "Windows 파란색 대신 노란색 강조 색을 사용합니다.",
+  "general.colors_desc": "Wrecktangle 로고처럼 노란색 강조 색을 사용합니다.",
   "general.language": "언어",
   "general.language_desc": "설정, 트레이 메뉴, 알림에 사용됩니다.",
   "general.size_cycle": "크기 순환",

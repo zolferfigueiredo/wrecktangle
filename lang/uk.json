@@ -30,7 +30,7 @@
   "general.auto_update": "Перевіряти оновлення автоматично",
   "general.auto_update_desc": "Wrecktangle шукає нову версію раз на добу.",
   "general.colors": "Використовувати кольори Wrecktangle",
-  "general.colors_desc": "Жовті акценти замість синього кольору Windows.",
+  "general.colors_desc": "Жовті акценти, як у логотипі Wrecktangle.",
   "general.language": "Мова",
   "general.language_desc": "Використовується в параметрах, меню в треї та сповіщеннях.",
   "general.size_cycle": "Цикл розмірів",

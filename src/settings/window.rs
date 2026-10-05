@@ -47,7 +47,9 @@ use crate::ui::{Scroll, Snap, focus_step};
 
 const CLASS_NAME: PCWSTR = w!("WrecktangleSettingsWindow");
 const CLIENT_W: f32 = 640.0;
-const CLIENT_H: f32 = 682.0;
+// Fits the Shortcuts page with a note under every row in every language
+// (741 DIPs at most, when the intro wraps), so it opens without scrolling.
+const CLIENT_H: f32 = 744.0;
 const MIN_W: f32 = 480.0;
 const MIN_H: f32 = 320.0;
 const LINE_SCROLL: f32 = 16.0;
