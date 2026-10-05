@@ -193,6 +193,9 @@ locks the exe. `installer.bat` builds the installer,
 `dist\Wrecktangle-<version>-x64-setup.exe`; it needs Inno Setup 6
 (`winget install JRSoftware.InnoSetup`).
 
+Want to help? [CONTRIBUTING.md](CONTRIBUTING.md) covers setup, checks,
+translations and pull requests.
+
 The repository ships a pre-commit hook that refuses commits on `main`, checks
 formatting and rejects em or en dashes in `src/*.rs`. Turn it on once after
 cloning:
@@ -242,6 +245,10 @@ changing any of them, run `cargo run --example make_icon` to render them into
 `wrecktangle.ico` and the 256 px PNG on the About page.
 
 </details>
+
+## License
+
+Wrecktangle is released under the [MIT License](LICENSE).
 
 ## Credits
 
