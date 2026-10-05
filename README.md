@@ -205,9 +205,10 @@ git config core.hooksPath .githooks
 ```
 
 **Release.** Bump `version` in `Cargo.toml`, and in this README's release
-badge and download links (CI fails while they differ), then push a tag named
-`v` plus that version (for example `v0.2.0`). The Release workflow checks the tag
-against `Cargo.toml`, runs the tests and builds `wrecktangle.exe` on a Windows
+badge and download links (CI fails while they differ). Once that is merged,
+tag `main` with `v` plus that version (for example `v0.2.0`) and push the tag.
+The Release workflow checks the tag against `Cargo.toml`, refuses a tag that
+isn't on `main`, runs the tests and builds `wrecktangle.exe` on a Windows
 runner with MSVC, packs it into a zip and an Inno Setup installer, and
 publishes a GitHub release named "Wrecktangle <version>" with:
 

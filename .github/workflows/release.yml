@@ -23,15 +23,26 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v7.0.1
+        with:
+          # Full history, so a tag can be checked against main.
+          fetch-depth: 0
       - name: Determine the version to build
         run: |
           # The checkout has CRLF line endings on Windows.
           version=$(tr -d '\r' < Cargo.toml | sed -n 's/^version = "\(.*\)"$/\1/p' | head -n 1)
           # Only a tag push publishes. A manual run or a pull request that
           # touches the release is build-only, so there is no tag to check.
-          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match Cargo version v$version" >&2
-            exit 1
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+              echo "Tag $GITHUB_REF_NAME does not match Cargo version v$version" >&2
+              exit 1
+            fi
+            # Releases come from main only: a tag on any other branch fails
+            # here, before anything is built or published.
+            if ! git merge-base --is-ancestor HEAD origin/main; then
+              echo "Tag $GITHUB_REF_NAME is not on main; merge first, then tag main" >&2
+              exit 1
+            fi
           fi
           echo "V=$version" >> "$GITHUB_ENV"
       - run: rustup toolchain install
