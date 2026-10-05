@@ -44,6 +44,7 @@ enum Command {
     RestoreDefaults,
     LanguageMenu,
     Language(usize),
+    SetColors(bool),
     ToggleSize(usize),
     SetStartup(bool),
     SetAutoUpdate(bool),
@@ -95,6 +96,11 @@ fn run(command: Command) {
             }
         }
         Command::Language(index) => set_language(index),
+        Command::SetColors(on) => {
+            app::update_config(|config| config.wrecktangle_colors = on);
+            let on = app::current_config().wrecktangle_colors;
+            window::update(|m| m.wrecktangle_colors = on);
+        }
         Command::ToggleSize(index) => on_size_toggled(index),
         Command::SetStartup(enable) => set_startup(enable),
         Command::SetAutoUpdate(enable) => {
@@ -121,7 +127,9 @@ fn refresh_all() {
     let startup = startup::is_enabled();
     let auto_update = update::auto_enabled();
     let language = lang::current_index();
+    let wrecktangle_colors = app::current_config().wrecktangle_colors;
     window::update(|m| {
+        m.wrecktangle_colors = wrecktangle_colors;
         m.startup = startup;
         m.auto_update = auto_update;
         m.language = language;

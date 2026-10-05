@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.2.2-blue" alt="Latest release"></a>
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.3.0-blue" alt="Latest release"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024%20edition-orange" alt="Rust 2024 edition"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue" alt="Windows 10 or 11">
   <a href="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml"><img src="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
@@ -22,6 +22,10 @@
   <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest/download/Wrecktangle-x64-setup.exe"><b>Download for Windows</b></a>
   &nbsp;·&nbsp;
   <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest/download/Wrecktangle-x64.zip">Portable zip</a>
+</p>
+
+<p align="center">
+  <img src="docs/settings.png" width="640" alt="The Wrecktangle Settings window with the default shortcuts">
 </p>
 
 ## Install
@@ -64,8 +68,9 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
   and Settings names the app it overrides, for example "Overrides PowerToys
   Peek".
 - **A Windows 11 style Settings window.** Fluent design, following the light or
-  dark theme. Change any shortcut, the size cycle or launch at startup, and
-  every change applies as you make it.
+  dark theme, in the Windows blue or Wrecktangle's own yellow. Change any
+  shortcut, the size cycle or launch at startup, and every change applies as
+  you make it.
 - **Speaks 12 languages.** Deutsch, English, Español, Français, Italiano,
   Polski, Português, Русский, Українська, 中文, 日本語 and 한국어. The first run
   follows the Windows display language, and **Language** in Settings switches
@@ -143,8 +148,8 @@ check on demand.
 
 Settings are stored at `%APPDATA%\Wrecktangle\config.json`. It holds the size
 cycle, the shortcut assigned to each action, `language` (a two letter code),
-`check_updates` (default `true`) and `last_update_check` (a Unix time in
-seconds, maintained by Wrecktangle).
+`wrecktangle_colors` (default `false`), `check_updates` (default `true`) and
+`last_update_check` (a Unix time in seconds, maintained by Wrecktangle).
 
 Edit it through the Settings window; a hand-edited file that fails to parse
 falls back to defaults with a notification, and is left untouched until you

@@ -203,7 +203,7 @@ pub fn create() -> Result<()> {
 
         let (x, y, w, h, monitor_dpi) = placement();
         let mode = theme::current_mode();
-        BACKGROUND.with(|bg| bg.set(colorref(palette(mode).background)));
+        BACKGROUND.with(|bg| bg.set(colorref(palette(mode, false).background)));
         let gfx = Gfx::new(monitor_dpi)?;
         let title = wide(&lang::t("window.title"));
         let hwnd = CreateWindowExW(
@@ -467,6 +467,7 @@ impl Window {
             Target::Clear(index) => Command::Clear(index),
             Target::RestoreDefaults => Command::RestoreDefaults,
             Target::Language => Command::LanguageMenu,
+            Target::Colors => Command::SetColors(!self.model.wrecktangle_colors),
             Target::Size(index) => Command::ToggleSize(index),
             Target::Startup => Command::SetStartup(!self.model.startup),
             Target::AutoUpdate => Command::SetAutoUpdate(!self.model.auto_update),
@@ -486,7 +487,7 @@ impl Window {
             layout,
             &self.ui,
             &self.scroll(),
-            &palette(self.mode),
+            &palette(self.mode, self.model.wrecktangle_colors),
             self.snap(),
         );
         matches!(self.gfx.draw(self.hwnd, &ops), Err(e) if e.code() == D2DERR_RECREATE_TARGET)
@@ -495,7 +496,7 @@ impl Window {
 
 fn retheme(hwnd: HWND) {
     let mode = theme::current_mode();
-    BACKGROUND.with(|bg| bg.set(colorref(palette(mode).background)));
+    BACKGROUND.with(|bg| bg.set(colorref(palette(mode, false).background)));
     with(|w| {
         w.mode = mode;
         w.invalidate();

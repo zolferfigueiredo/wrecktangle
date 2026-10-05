@@ -29,6 +29,8 @@
   "failure.unreachable": "无法连接",
   "general.auto_update": "自动检查更新",
   "general.auto_update_desc": "Wrecktangle 每天查找一次新版本。",
+  "general.colors": "使用 Wrecktangle 配色",
+  "general.colors_desc": "用黄色强调色代替 Windows 的蓝色。",
   "general.language": "语言",
   "general.language_desc": "用于设置、托盘菜单和通知。",
   "general.size_cycle": "尺寸循环",

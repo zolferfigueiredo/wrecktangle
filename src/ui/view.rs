@@ -51,6 +51,7 @@ pub struct Model {
     pub rows: Vec<Row>,
     pub sizes: Vec<SizeOption>,
     pub language: usize,
+    pub wrecktangle_colors: bool,
     pub startup: bool,
     pub auto_update: bool,
     pub update_status: String,
@@ -85,6 +86,7 @@ pub enum Target {
     Clear(usize),
     RestoreDefaults,
     Language,
+    Colors,
     Size(usize),
     Startup,
     AutoUpdate,
@@ -711,8 +713,8 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
     let w = (width - 2.0 * PAGE_PADDING).max(0.0);
     let mut y = 14.0;
 
-    y = b.card(x, y, w, |b, x, y, w| {
-        y + setting_row(
+    y = b.card(x, y, w, |b, x, mut y, w| {
+        y += setting_row(
             b,
             model,
             x,
@@ -721,6 +723,17 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
             &lang::t("general.language"),
             &lang::t("general.language_desc"),
             Trailing::Language,
+        );
+        y = b.divider(x, y, w);
+        y + setting_row(
+            b,
+            model,
+            x,
+            y,
+            w,
+            &lang::t("general.colors"),
+            &lang::t("general.colors_desc"),
+            Trailing::Switch(Target::Colors, model.wrecktangle_colors),
         )
     });
 
@@ -1155,7 +1168,7 @@ impl<T: Clone> Painter<'_, T> {
             Ink::Foreground => self.p.foreground,
             Ink::Secondary => self.p.text_secondary,
             Ink::Tertiary => self.p.text_tertiary,
-            Ink::Accent => self.p.accent,
+            Ink::Accent => self.p.accent_text,
             Ink::Warning => self.p.warning,
         }
     }
@@ -1190,7 +1203,7 @@ impl<T: Clone> Painter<'_, T> {
                     self.fill(bar, 1.5, p.accent);
                 }
                 if self.ui.focused(target) {
-                    self.stroke(*rect, 4.0, 2.0, p.accent);
+                    self.stroke(*rect, 4.0, 2.0, p.accent_text);
                 }
             }
             Item::Pill {
@@ -1200,7 +1213,7 @@ impl<T: Clone> Painter<'_, T> {
             } => {
                 let target = Target::Pill(*index);
                 let (bg, border, width) = if *recording {
-                    (p.accent.with_alpha(0.12), p.accent, 2.0)
+                    (p.accent.with_alpha(0.12), p.accent_text, 2.0)
                 } else if self.ui.hovered(target) {
                     (fg.with_alpha(0.09), fg.with_alpha(0.14), 1.0)
                 } else {
@@ -1209,7 +1222,7 @@ impl<T: Clone> Painter<'_, T> {
                 self.fill(*rect, 5.0, bg);
                 self.stroke(*rect, 5.0, width, border);
                 if !*recording && self.ui.focused(target) {
-                    self.stroke(*rect, 5.0, 2.0, p.accent);
+                    self.stroke(*rect, 5.0, 2.0, p.accent_text);
                 }
             }
             Item::Chip(rect) => {
@@ -1232,7 +1245,7 @@ impl<T: Clone> Painter<'_, T> {
                     color: p.text_secondary,
                 });
                 if self.ui.focused(target) {
-                    self.stroke(*rect, 4.0, 2.0, p.accent);
+                    self.stroke(*rect, 4.0, 2.0, p.accent_text);
                 }
             }
             Item::Button {
@@ -1303,12 +1316,12 @@ impl<T: Clone> Painter<'_, T> {
             }
             Item::Link { link, rect, text } => {
                 let target = Target::Link(*link);
-                self.text(text, rect.x, rect.y, p.accent);
+                self.text(text, rect.x, rect.y, p.accent_text);
                 if self.ui.hovered(target) || self.ui.focused(target) {
                     self.fill(
                         Rect::new(rect.x, rect.bottom() - 2.0, rect.w, 1.0),
                         0.0,
-                        p.accent,
+                        p.accent_text,
                     );
                 }
             }
@@ -1335,7 +1348,7 @@ impl<T: Clone> Painter<'_, T> {
                         .collect(),
                 ],
                 width: g.stroke / s,
-                color: self.p.accent,
+                color: self.p.accent_stroke,
             }),
         }
     }
@@ -1694,6 +1707,15 @@ mod tests {
     }
 
     #[test]
+    fn colors_switch_sits_under_the_language_box() {
+        let mut m = model();
+        m.page = Page::General;
+        let order = lay(&m).focus_order();
+        let at = |t: Target| order.iter().position(|o| o.0 == t).expect("target");
+        assert_eq!(at(Target::Colors), at(Target::Language) + 1);
+    }
+
+    #[test]
     fn locked_size_and_busy_check_are_not_focusable() {
         let mut m = model();
         m.page = Page::General;
@@ -1749,7 +1771,7 @@ mod tests {
     fn has_focus_ring(ops: &[Op<String>], palette: &Palette) -> bool {
         ops.iter().any(|op| match op {
             Op::Stroke { color, width, .. } => {
-                *width == 2.0 && (*color == palette.focus_outer || *color == palette.accent)
+                *width == 2.0 && (*color == palette.focus_outer || *color == palette.accent_text)
             }
             _ => false,
         })
@@ -1759,7 +1781,7 @@ mod tests {
     fn focus_rings_need_keyboard_cues() {
         let m = model();
         let layout = lay(&m);
-        let palette = palette(Mode::Dark);
+        let palette = palette(Mode::Dark, false);
         let scroll = Scroll::default();
         let mut ui = Interaction {
             focus: Some(Target::Pill(0)),
@@ -1790,7 +1812,7 @@ mod tests {
             &layout,
             &Interaction::default(),
             &scroll,
-            &palette(Mode::Light),
+            &palette(Mode::Light, false),
             Snap::new(1.5),
         );
         assert!(matches!(ops[0], Op::Clear(_)));
