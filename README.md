@@ -19,9 +19,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest/download/Wrecktangle-x64-setup.exe"><b>Download for Windows</b></a>
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.0/Wrecktangle-0.3.0-x64-setup.exe"><b>Download for Windows</b></a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest/download/Wrecktangle-x64.zip">Portable zip</a>
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.0/Wrecktangle-0.3.0-x64.zip">Portable zip</a>
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@
 
 ## Install
 
-1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/latest/download/Wrecktangle-x64-setup.exe)
+1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.0/Wrecktangle-0.3.0-x64-setup.exe)
    and run it. It installs for your user only, into
    `%LOCALAPPDATA%\Programs\Wrecktangle`, and never asks for admin rights. It
    isn't code signed yet, so if Windows SmartScreen says it protected your PC,
@@ -40,7 +40,7 @@
 3. Press Ctrl+Alt+Left. The focused window fills the left half of its screen.
    Press it again for two thirds, and again for three quarters.
 
-Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/latest/download/Wrecktangle-x64.zip):
+Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.3.0/Wrecktangle-0.3.0-x64.zip):
 put `wrecktangle.exe` somewhere permanent, run it from there, and turn on
 **Launch at startup** from the tray menu.
 
@@ -204,18 +204,16 @@ cloning:
 git config core.hooksPath .githooks
 ```
 
-**Release.** Bump `version` in `Cargo.toml` and in the release badge at the
-top of this README (CI fails while they differ), then push a tag named `v`
-plus that version (for example `v0.2.0`). The Release workflow checks the tag
+**Release.** Bump `version` in `Cargo.toml`, and in this README's release
+badge and download links (CI fails while they differ), then push a tag named
+`v` plus that version (for example `v0.2.0`). The Release workflow checks the tag
 against `Cargo.toml`, runs the tests and builds `wrecktangle.exe` on a Windows
 runner with MSVC, packs it into a zip and an Inno Setup installer, and
 publishes a GitHub release named "Wrecktangle <version>" with:
 
 - `Wrecktangle-<version>-x64-setup.exe` and `Wrecktangle-<version>-x64.zip`
-- `Wrecktangle-x64-setup.exe` and `Wrecktangle-x64.zip`, the same files
-  under fixed names, so `releases/latest/download/<name>` links never change
-- `SHA256SUMS` for the versioned files, and `latest.json` with the version
-  and the zip's SHA-256
+- `SHA256SUMS` for both, and `latest.json` with the version and the zip's
+  SHA-256
 
 Running the workflow by hand, or a pull request that changes it or
 `installer/`, builds the same files without publishing and uploads them as a
@@ -223,7 +221,7 @@ workflow artifact.
 
 **CI** checks every pull request on Linux, cross-compiling for Windows:
 `cargo fmt --check`, `cargo test`, Clippy with warnings as errors, and a
-release build whose `wrecktangle.exe` is uploaded as a workflow artifact.
+release build uploaded as a workflow artifact, `Wrecktangle-<version>-x64.exe`.
 
 <details>
 <summary><b>Developer overrides</b></summary>
