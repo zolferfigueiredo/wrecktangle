@@ -5,7 +5,7 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, KillTimer, RegisterClassExW,
+    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, KillTimer, PostQuitMessage, RegisterClassExW,
     RegisterWindowMessageW, SetTimer, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_HOTKEY,
     WM_SETTINGCHANGE, WM_TIMER, WNDCLASSEXW, WS_EX_TOOLWINDOW,
 };
@@ -436,7 +436,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         WM_DESTROY => {
             unregister_all(hwnd);
             tray::remove(hwnd);
-            let _ = slint::quit_event_loop();
+            unsafe { PostQuitMessage(0) };
             LRESULT(0)
         }
         _ => {

@@ -220,8 +220,8 @@ release build whose `wrecktangle.exe` is uploaded as a workflow artifact.
 <details>
 <summary><b>Developer overrides</b></summary>
 
-- `WRECKTANGLE_THEME=light` or `dark` forces the Settings theme instead of
-  following Windows.
+- `WRECKTANGLE_THEME=light` or `dark` forces the theme of the Settings window
+  and menus instead of following Windows.
 - `WRECKTANGLE_UPDATE_URL` replaces the GitHub releases API URL for the update
   check, so a local server can stand in for GitHub. Plain `http://` is
   accepted only through this variable.
@@ -243,9 +243,6 @@ changing any of them, run `cargo run --example make_icon` to render them into
 - Inspired by [Rectangle](https://rectangleapp.com) by Ryan Hanson, the macOS
   window manager. Wrecktangle is an independent Windows app, not affiliated
   with Rectangle.
-- The Settings window is built with [Slint](https://slint.dev).
-
-[![#MadeWithSlint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
 
 ---
 

@@ -10,6 +10,9 @@ use windows::core::PWSTR;
 pub struct Language {
     pub code: &'static str,
     pub name: &'static str,
+    /// The BCP 47 locale DirectWrite shapes the language's text with, which
+    /// also picks the right font fallback for Han characters.
+    pub locale: &'static str,
     catalog: &'static str,
 }
 
@@ -17,61 +20,73 @@ pub const LANGUAGES: [Language; 12] = [
     Language {
         code: "de",
         name: "Deutsch",
+        locale: "de-DE",
         catalog: include_str!("../lang/de.json"),
     },
     Language {
         code: "en",
         name: "English",
+        locale: "en-US",
         catalog: include_str!("../lang/en.json"),
     },
     Language {
         code: "es",
         name: "Español",
+        locale: "es-ES",
         catalog: include_str!("../lang/es.json"),
     },
     Language {
         code: "fr",
         name: "Français",
+        locale: "fr-FR",
         catalog: include_str!("../lang/fr.json"),
     },
     Language {
         code: "it",
         name: "Italiano",
+        locale: "it-IT",
         catalog: include_str!("../lang/it.json"),
     },
     Language {
         code: "pl",
         name: "Polski",
+        locale: "pl-PL",
         catalog: include_str!("../lang/pl.json"),
     },
     Language {
         code: "pt",
         name: "Português",
+        locale: "pt-PT",
         catalog: include_str!("../lang/pt.json"),
     },
     Language {
         code: "ru",
         name: "Русский",
+        locale: "ru-RU",
         catalog: include_str!("../lang/ru.json"),
     },
     Language {
         code: "uk",
         name: "Українська",
+        locale: "uk-UA",
         catalog: include_str!("../lang/uk.json"),
     },
     Language {
         code: "zh",
         name: "中文",
+        locale: "zh-CN",
         catalog: include_str!("../lang/zh.json"),
     },
     Language {
         code: "ja",
         name: "日本語",
+        locale: "ja-JP",
         catalog: include_str!("../lang/ja.json"),
     },
     Language {
         code: "ko",
         name: "한국어",
+        locale: "ko-KR",
         catalog: include_str!("../lang/ko.json"),
     },
 ];
@@ -114,8 +129,9 @@ pub fn current_index() -> usize {
     CURRENT.load(Ordering::Relaxed)
 }
 
-// Han characters have no locale hint in the renderer's fallback, so Chinese
-// text would come out of a Japanese font and miss simplified glyphs.
+// Each CJK language uses its own Windows UI font, so Han characters never
+// come out of another language's font (simplified Chinese glyphs differ from
+// Japanese ones).
 pub fn ui_font() -> &'static str {
     match LANGUAGES[current_index()].code {
         "zh" => "Microsoft YaHei UI",

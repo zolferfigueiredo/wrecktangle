@@ -1,14 +1,22 @@
-//! Light/dark mode detection and the Win32 glue that applies it to the tray
-//! menu (Windows-only). The Settings window follows the theme through Slint.
+//! Light/dark mode detection and the Win32 glue that applies it to menus and
+//! the Settings window's title bar (Windows-only). The Settings colors are in
+//! `ui::palette`.
 
 #[cfg(windows)]
-use windows::Win32::Foundation::LPARAM;
+use windows::Win32::Foundation::{HWND, LPARAM};
+#[cfg(windows)]
+use windows::Win32::Graphics::Dwm::{DWMWA_USE_IMMERSIVE_DARK_MODE, DwmSetWindowAttribute};
 #[cfg(windows)]
 use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryW};
 #[cfg(windows)]
 use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
 #[cfg(windows)]
-use windows::core::{PCSTR, PCWSTR, w};
+use windows::Win32::UI::WindowsAndMessaging::{
+    IsWindowVisible, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER,
+    SetWindowPos,
+};
+#[cfg(windows)]
+use windows::core::{BOOL, PCSTR, PCWSTR, w};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
@@ -77,14 +85,44 @@ pub fn current_mode() -> Mode {
     }
 }
 
+/// Sets the window's title bar to dark or light immersive mode. It calls
+/// SetWindowPos, so never call it while holding a RefCell borrow.
+#[cfg(windows)]
+pub fn apply_title_bar(hwnd: HWND, dark: bool) {
+    let value = BOOL::from(dark);
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd,
+            DWMWA_USE_IMMERSIVE_DARK_MODE,
+            &value as *const BOOL as *const core::ffi::c_void,
+            std::mem::size_of::<BOOL>() as u32,
+        );
+        // A visible window keeps its old title bar until the frame is
+        // recalculated.
+        if IsWindowVisible(hwnd).as_bool() {
+            let _ = SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+    }
+}
+
 // uxtheme.dll exports SetPreferredAppMode (ordinal 135) and FlushMenuThemes
 // (ordinal 136) without header declarations; this is how Notepad++ and
 // other apps dark-theme menus on Windows 10/11. Loaded by ordinal and
 // skipped if either is missing, since it is undocumented and can change.
+// Forcing the mode, rather than allowing dark, lets WRECKTANGLE_THEME reach
+// the menus too.
 #[cfg(windows)]
 pub fn apply_dark_menu(dark: bool) {
-    const ALLOW_DARK: i32 = 1;
-    const DEFAULT_MODE: i32 = 0;
+    const FORCE_DARK: i32 = 2;
+    const FORCE_LIGHT: i32 = 3;
     unsafe {
         let Ok(uxtheme) = LoadLibraryW(w!("uxtheme.dll")) else {
             return;
@@ -96,7 +134,7 @@ pub fn apply_dark_menu(dark: bool) {
 
         if let Some(proc) = set_preferred_app_mode {
             let set_preferred_app_mode: extern "system" fn(i32) -> i32 = std::mem::transmute(proc);
-            set_preferred_app_mode(if dark { ALLOW_DARK } else { DEFAULT_MODE });
+            set_preferred_app_mode(if dark { FORCE_DARK } else { FORCE_LIGHT });
         }
         if let Some(proc) = flush_menu_themes {
             let flush_menu_themes: extern "system" fn() = std::mem::transmute(proc);

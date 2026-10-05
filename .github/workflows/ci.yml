@@ -8,8 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Slint makes an uncached build slow; tighten once a cached run is measured.
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Check the README release badge matches the Cargo version
