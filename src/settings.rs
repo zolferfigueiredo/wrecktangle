@@ -28,9 +28,6 @@ slint::include_modules!();
 
 const WINDOW_TITLE: PCWSTR = w!("Wectangle Settings");
 
-const REPO_URL: &str = "https://github.com/zolferfigueiredo/wectangle";
-const ISSUES_URL: &str = "https://github.com/zolferfigueiredo/wectangle/issues";
-
 const MOD_BIT_CTRL: isize = 0x1;
 const MOD_BIT_ALT: isize = 0x2;
 const MOD_BIT_SHIFT: isize = 0x4;
@@ -107,8 +104,7 @@ fn create() -> Result<SettingsWindow, slint::PlatformError> {
         on_update_state_changed();
     });
     ui.on_download(update::open_download);
-    ui.on_open_github(|| update::open_url(REPO_URL));
-    ui.on_report_issue(|| update::open_url(ISSUES_URL));
+    ui.on_open_url(|url| update::open_url(&url));
     ui.window().on_close_requested(|| {
         cancel_recording();
         if let Some(ui) = window() {

@@ -147,3 +147,9 @@ check on demand.
 
   Change any of these from the Settings window if they conflict with how you
   work.
+
+## Credits
+
+The Settings window is built with [Slint](https://slint.dev).
+
+[![#MadeWithSlint](https://raw.githubusercontent.com/slint-ui/slint/master/logo/MadeWithSlint-logo-whitebg.png)](https://slint.dev)
