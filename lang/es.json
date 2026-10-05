@@ -30,7 +30,7 @@
   "general.auto_update": "Buscar actualizaciones automáticamente",
   "general.auto_update_desc": "Wrecktangle busca una versión nueva una vez al día.",
   "general.colors": "Usar los colores de Wrecktangle",
-  "general.colors_desc": "Detalles en amarillo en lugar del azul de Windows.",
+  "general.colors_desc": "Detalles en amarillo, como el logo de Wrecktangle.",
   "general.language": "Idioma",
   "general.language_desc": "Se usa en Ajustes, el menú de la bandeja y los avisos.",
   "general.size_cycle": "Ciclo de tamaños",

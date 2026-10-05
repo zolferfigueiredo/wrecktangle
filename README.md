@@ -68,7 +68,7 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
   and Settings names the app it overrides, for example "Overrides PowerToys
   Peek".
 - **A Windows 11 style Settings window.** Fluent design, following the light or
-  dark theme, in the Windows blue or Wrecktangle's own yellow. Change any
+  dark theme, with optional yellow highlights like the logo. Change any
   shortcut, the size cycle or launch at startup, and every change applies as
   you make it.
 - **Speaks 12 languages.** Deutsch, English, Español, Français, Italiano,
