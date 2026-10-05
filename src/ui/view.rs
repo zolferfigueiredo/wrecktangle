@@ -71,7 +71,7 @@ pub enum Link {
 impl Link {
     pub fn url(self) -> &'static str {
         match self {
-            Link::Website => "https://github.com/zolferfigueiredo/wrecktangle",
+            Link::Website => "https://wrecktangle.zolfer.com",
             Link::Author => "https://zolfer.com",
             Link::Rectangle => "https://rectangleapp.com",
         }
