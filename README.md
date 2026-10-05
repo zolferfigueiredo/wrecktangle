@@ -213,10 +213,19 @@ cloning:
 git config core.hooksPath .githooks
 ```
 
-**Release.** Bump `version` in `Cargo.toml`, and in this README's release
-badge and download links (CI fails while they differ). Once that is merged,
-tag `main` with `v` plus that version (for example `v0.2.0`) and push the tag.
-The Release workflow checks the tag against `Cargo.toml`, refuses a tag that
+**Release.** `release.bat` does it in two steps; it needs git, `gh` signed in
+and cargo, and `-DryRun` shows what it would do:
+
+1. `release.bat 0.4.1` opens a pull request that bumps the version to 0.4.1
+   in `Cargo.toml`, `Cargo.lock`, and this README's release badge and
+   download links (CI fails while they differ).
+2. Once that is merged, `release.bat` checks that CI passed on `main`, asks
+   you to confirm, tags `main` with `v0.4.1`, pushes the tag and shows the
+   Release workflow's progress.
+
+Double-clicking `release.bat` does whichever step is next: it publishes the
+version on `main` if it isn't released yet, and otherwise asks for the next
+version. The Release workflow checks the tag against `Cargo.toml`, refuses a tag that
 isn't on `main`, runs the tests and builds `wrecktangle.exe` for 64-bit and
 32-bit Windows on a Windows runner with MSVC, packs each into a zip and an
 Inno Setup installer, and publishes a GitHub release named

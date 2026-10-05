@@ -52,9 +52,11 @@ A Rectangle-style keyboard window manager for Windows, in Rust.
 
 ## Releasing
 
-Bump `version` in `Cargo.toml` and in the README's release badge and
-download links (CI checks they all match), merge, then tag `v<version>` on
-`main` and push the tag (the workflow refuses tags that aren't on `main`);
+`release.bat <version>` (`scripts/release.ps1`) opens the bump pull request:
+`version` in `Cargo.toml`, `Cargo.lock`, and the README's release badge and
+download links (CI checks they all match). After it is merged, `release.bat`
+with no version checks CI on `main`, then tags `v<version>` on `main` and
+pushes the tag (the workflow refuses tags that aren't on `main`);
 the Release workflow publishes `Wrecktangle-<version>-<arch>-setup.exe` and
 `Wrecktangle-<version>-<arch>.zip` for `x64` (64-bit) and `x86` (32-bit),
 plus `SHA256SUMS` and `latest.json`. There are no unversioned copies. The
