@@ -84,11 +84,10 @@ deleted afterwards.
 
 ### Icon
 
-`assets/wrecktangle.svg` is the logo. `assets/make-icon.ps1` draws the same
-artwork, with pixel-snapped versions for the 16 to 32 px tray and title bar
-sizes, into `wrecktangle.ico` and the 256 px PNG on the About page. After
-changing the logo, update the script's geometry and run
-`pwsh assets/make-icon.ps1`.
+`assets/wrecktangle.svg` is the logo, and `assets/wrecktangle-16.svg` to
+`-32.svg` are pixel-snapped versions for the tray and title bar sizes. After
+changing any of them, run `cargo run --example make_icon` to render them into
+`wrecktangle.ico` and the 256 px PNG on the About page.
 
 ### Releasing
 

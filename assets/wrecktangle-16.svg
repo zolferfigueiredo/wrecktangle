@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFD84A"/>
+      <stop offset="1" stop-color="#EEAD00"/>
+    </linearGradient>
+    <radialGradient id="ball" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#7A818B"/>
+      <stop offset="0.6" stop-color="#1B1D21"/>
+      <stop offset="1" stop-color="#0B0C0E"/>
+    </radialGradient>
+    <clipPath id="tile-clip"><rect width="16" height="16" rx="3.5"/></clipPath>
+    <clipPath id="window-clip"><rect x="6" y="7" width="8" height="7" rx="2"/></clipPath>
+    <mask id="bite" maskUnits="userSpaceOnUse" x="0" y="0" width="16" height="16">
+      <rect width="16" height="16" fill="#FFFFFF"/>
+      <circle cx="5.5" cy="6.5" r="3.5" fill="#000000"/>
+    </mask>
+  </defs>
+  <rect width="16" height="16" rx="3.5" fill="url(#tile)"/>
+  <g mask="url(#bite)">
+    <rect x="6" y="7" width="8" height="7" rx="2" fill="#121212"/>
+    <rect x="7" y="9" width="6" height="4" rx="0.5" fill="#FFFFFF"/>
+    <circle cx="5.5" cy="6.5" r="4" fill="none" stroke="#121212" stroke-width="1" clip-path="url(#window-clip)"/>
+  </g>
+  <line x1="5.5" y1="6.5" x2="3" y2="0" stroke="#121212" stroke-width="1" clip-path="url(#tile-clip)"/>
+  <circle cx="5.5" cy="6.5" r="2" fill="url(#ball)"/>
+</svg>
