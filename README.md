@@ -60,7 +60,7 @@ cargo build --release
 target\release\wectangle.exe
 ```
 
-On Windows, double-click `run.bat` to start Wectangle (it builds once if
+On Windows, double-click `run.bat` to (re)start Wectangle (it builds once if
 needed) or `build.bat` to rebuild after changing the code.
 
 Running the executable a second time brings up the Settings window of the
