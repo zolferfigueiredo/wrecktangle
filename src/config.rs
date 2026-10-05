@@ -32,6 +32,21 @@ pub fn parse_size(input: &str) -> Result<f64, ParseSizeError> {
     }
 }
 
+pub fn parse_size_list(text: &str) -> Result<Vec<String>, &'static str> {
+    let entries: Vec<String> = text
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if entries.is_empty() || entries.len() > 8 {
+        return Err("Enter 1 to 8 fractions or percentages, separated by commas.");
+    }
+    if entries.iter().any(|entry| parse_size(entry).is_err()) {
+        return Err("Each size must be a fraction or percentage between 0 and 1.");
+    }
+    Ok(entries)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
     Missing,
@@ -272,6 +287,23 @@ mod tests {
     fn parse_size_percent() {
         let f = parse_size("40%").unwrap();
         assert!((f - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_size_list_trims_and_keeps_entries() {
+        assert_eq!(
+            parse_size_list(" 1/2 , 2/3,40% ,").unwrap(),
+            ["1/2", "2/3", "40%"]
+        );
+    }
+
+    #[test]
+    fn parse_size_list_rejects_empty_oversized_and_invalid_lists() {
+        assert!(parse_size_list("").is_err());
+        assert!(parse_size_list(" , ").is_err());
+        assert!(parse_size_list("1/2, abc").is_err());
+        assert!(parse_size_list("1/2, 150%").is_err());
+        assert!(parse_size_list("1/2,1/3,1/4,1/5,1/6,1/7,1/8,1/9,1/10").is_err());
     }
 
     #[test]

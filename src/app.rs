@@ -5,9 +5,9 @@ use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::Input::KeyboardAndMouse::{RegisterHotKey, UnregisterHotKey};
 use windows::Win32::UI::WindowsAndMessaging::{
-    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, KillTimer, PostMessageW, PostQuitMessage,
-    RegisterClassExW, RegisterWindowMessageW, SetTimer, WINDOW_STYLE, WM_APP, WM_DESTROY,
-    WM_HOTKEY, WM_SETTINGCHANGE, WM_TIMER, WNDCLASSEXW, WS_EX_TOOLWINDOW,
+    CW_USEDEFAULT, CreateWindowExW, DefWindowProcW, KillTimer, RegisterClassExW,
+    RegisterWindowMessageW, SetTimer, WINDOW_STYLE, WM_APP, WM_DESTROY, WM_HOTKEY,
+    WM_SETTINGCHANGE, WM_TIMER, WNDCLASSEXW, WS_EX_TOOLWINDOW,
 };
 use windows::core::PCWSTR;
 use windows::core::w;
@@ -21,7 +21,7 @@ use crate::{owners, takeover, tray, update, window_ops};
 pub const WINDOW_CLASS_NAME: PCWSTR = w!("WectangleMainWindow");
 pub const WM_APP_TRAY: u32 = WM_APP + 1;
 pub const WM_APP_OPEN_SETTINGS: u32 = WM_APP + 2;
-pub const WM_APP_THEME_CHANGED: u32 = WM_APP + 3;
+pub const WM_APP_RECORDER_KEY: u32 = WM_APP + 3;
 pub const WM_APP_TAKEOVER: u32 = WM_APP + 4;
 pub const WM_APP_UPDATE_DONE: u32 = WM_APP + 5;
 
@@ -167,15 +167,6 @@ pub fn shortcut_note(action: Action) -> Option<String> {
         Claim::Reserved => RESERVED_NOTE.to_string(),
         Claim::HookFailed => "In use by another app".to_string(),
     })
-}
-
-/// Status text for a shortcut RegisterHotKey refused, before it is applied.
-pub fn candidate_note(sc: &Shortcut) -> String {
-    if takeover::is_reserved(sc) {
-        RESERVED_NOTE.to_string()
-    } else {
-        takeover_note(sc)
-    }
 }
 
 const RESERVED_NOTE: &str = "Reserved by Windows";
@@ -436,25 +427,17 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         WM_SETTINGCHANGE => {
             if theme::is_immersive_color_set_change(lparam) {
                 theme::apply_dark_menu(theme::current_mode() == theme::Mode::Dark);
-                if let Some(settings_hwnd) = crate::settings::hwnd() {
-                    unsafe {
-                        let _ = PostMessageW(
-                            Some(settings_hwnd),
-                            WM_APP_THEME_CHANGED,
-                            WPARAM(0),
-                            LPARAM(0),
-                        );
-                    }
-                }
             }
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        }
+        WM_APP_RECORDER_KEY => {
+            crate::settings::on_recorder_key(wparam.0 as u16, lparam.0);
+            LRESULT(0)
         }
         WM_DESTROY => {
             unregister_all(hwnd);
             tray::remove(hwnd);
-            unsafe {
-                PostQuitMessage(0);
-            }
+            let _ = slint::quit_event_loop();
             LRESULT(0)
         }
         _ => {

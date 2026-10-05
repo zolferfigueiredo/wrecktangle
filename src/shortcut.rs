@@ -127,7 +127,7 @@ pub fn parse(input: &str) -> Result<Shortcut, ParseShortcutError> {
     })
 }
 
-pub fn format(shortcut: &Shortcut) -> String {
+fn parts(shortcut: &Shortcut) -> Vec<String> {
     let mut parts = Vec::with_capacity(5);
     if shortcut.ctrl {
         parts.push("Ctrl".to_string());
@@ -141,8 +141,27 @@ pub fn format(shortcut: &Shortcut) -> String {
     if shortcut.win {
         parts.push("Win".to_string());
     }
-    parts.push(lookup_name(shortcut.vk).unwrap_or_else(|| format!("VK_{:#X}", shortcut.vk)));
-    parts.join("+")
+    parts.push(key_name(shortcut));
+    parts
+}
+
+pub fn format(shortcut: &Shortcut) -> String {
+    parts(shortcut).join("+")
+}
+
+pub fn key_caps(shortcut: &Shortcut) -> Vec<String> {
+    let mut caps = parts(shortcut);
+    let arrow = match shortcut.vk {
+        0x25 => Some("\u{2190}"),
+        0x26 => Some("\u{2191}"),
+        0x27 => Some("\u{2192}"),
+        0x28 => Some("\u{2193}"),
+        _ => None,
+    };
+    if let (Some(arrow), Some(last)) = (arrow, caps.last_mut()) {
+        *last = arrow.to_string();
+    }
+    caps
 }
 
 pub fn key_name(shortcut: &Shortcut) -> String {
@@ -225,6 +244,14 @@ mod tests {
     fn format_uses_canonical_modifier_order() {
         let s = parse("Win+Shift+Alt+Ctrl+Right").unwrap();
         assert_eq!(format(&s), "Ctrl+Alt+Shift+Win+Right");
+    }
+
+    #[test]
+    fn key_caps_split_modifiers_and_draw_arrows() {
+        let s = parse("Ctrl+Alt+Win+Left").unwrap();
+        assert_eq!(key_caps(&s), ["Ctrl", "Alt", "Win", "\u{2190}"]);
+        let s = parse("Ctrl+Alt+Home").unwrap();
+        assert_eq!(key_caps(&s), ["Ctrl", "Alt", "Home"]);
     }
 
     #[test]
