@@ -44,11 +44,11 @@ fn system_prefers_light() -> bool {
     .unwrap_or(true)
 }
 
-// `WECTANGLE_THEME=light|dark` overrides the system theme, so both themes
+// `WRECKTANGLE_THEME=light|dark` overrides the system theme, so both themes
 // can be exercised without changing Windows settings. Checked first on
 // every platform, since it needs no OS call.
 pub fn override_mode() -> Option<Mode> {
-    match std::env::var("WECTANGLE_THEME")
+    match std::env::var("WRECKTANGLE_THEME")
         .ok()?
         .to_ascii_lowercase()
         .as_str()
@@ -134,27 +134,27 @@ mod tests {
     #[test]
     fn env_override_selects_mode_and_is_case_insensitive() {
         unsafe {
-            std::env::set_var("WECTANGLE_THEME", "light");
+            std::env::set_var("WRECKTANGLE_THEME", "light");
         }
         assert_eq!(current_mode(), Mode::Light);
 
         unsafe {
-            std::env::set_var("WECTANGLE_THEME", "dark");
+            std::env::set_var("WRECKTANGLE_THEME", "dark");
         }
         assert_eq!(current_mode(), Mode::Dark);
 
         unsafe {
-            std::env::set_var("WECTANGLE_THEME", "LIGHT");
+            std::env::set_var("WRECKTANGLE_THEME", "LIGHT");
         }
         assert_eq!(override_mode(), Some(Mode::Light));
 
         unsafe {
-            std::env::set_var("WECTANGLE_THEME", "sepia");
+            std::env::set_var("WRECKTANGLE_THEME", "sepia");
         }
         assert_eq!(override_mode(), None);
 
         unsafe {
-            std::env::remove_var("WECTANGLE_THEME");
+            std::env::remove_var("WRECKTANGLE_THEME");
         }
         assert_eq!(override_mode(), None);
     }

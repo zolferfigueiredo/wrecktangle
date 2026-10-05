@@ -21,9 +21,10 @@ use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, SW_SHOWNORMAL};
 #[cfg(windows)]
 use windows::core::{PCWSTR, w};
 
-const DEFAULT_URL: &str = "https://api.github.com/repos/zolferfigueiredo/wectangle/releases/latest";
-const URL_OVERRIDE_VAR: &str = "WECTANGLE_UPDATE_URL";
-const ASSET_NAME: &str = "wectangle.exe";
+const DEFAULT_URL: &str =
+    "https://api.github.com/repos/zolferfigueiredo/wrecktangle/releases/latest";
+const URL_OVERRIDE_VAR: &str = "WRECKTANGLE_UPDATE_URL";
+const ASSET_NAME: &str = "wrecktangle.exe";
 
 const BAD_REPLY: &str = "unexpected reply";
 const NO_DOWNLOAD: &str = "no download link";
@@ -291,7 +292,7 @@ pub struct Url {
 }
 
 /// Plain http is accepted only when `allow_http` is set, which is the case
-/// only for the `WECTANGLE_UPDATE_URL` override.
+/// only for the `WRECKTANGLE_UPDATE_URL` override.
 pub fn parse_url(url: &str, allow_http: bool) -> Option<Url> {
     let (secure, rest) = if let Some(rest) = url.strip_prefix("https://") {
         (true, rest)
@@ -424,7 +425,7 @@ fn run_check() -> State {
         Ok(url) => url,
         Err(message) => return State::Failed(message),
     };
-    let agent = format!("Wectangle/{}", current_version());
+    let agent = format!("Wrecktangle/{}", current_version());
     match fetch(&url, &agent) {
         Ok((status, body)) => evaluate(status, &body, current_version(), now_unix()),
         Err(message) => State::Failed(message),
@@ -543,8 +544,8 @@ mod tests {
     use super::*;
 
     const RELEASE_JSON: &str = r#"{
-        "url": "https://api.github.com/repos/zolferfigueiredo/wectangle/releases/1",
-        "html_url": "https://github.com/zolferfigueiredo/wectangle/releases/tag/v0.3.0",
+        "url": "https://api.github.com/repos/zolferfigueiredo/wrecktangle/releases/1",
+        "html_url": "https://github.com/zolferfigueiredo/wrecktangle/releases/tag/v0.3.0",
         "tag_name": "v0.3.0",
         "name": "v0.3.0",
         "draft": false,
@@ -552,7 +553,7 @@ mod tests {
         "body": "notes",
         "assets": [
             {"name": "notes.txt", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/notes.txt"},
-            {"name": "wectangle.exe", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/wectangle.exe"}
+            {"name": "wrecktangle.exe", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/wrecktangle.exe"}
         ]
     }"#;
 
@@ -613,7 +614,7 @@ mod tests {
         assert_eq!(release.tag, "v0.3.0");
         assert_eq!(
             release.url,
-            "https://github.com/x/releases/download/v0.3.0/wectangle.exe"
+            "https://github.com/x/releases/download/v0.3.0/wrecktangle.exe"
         );
     }
 
@@ -648,7 +649,7 @@ mod tests {
             state,
             State::Available {
                 version: "0.3.0".to_string(),
-                url: "https://github.com/x/releases/download/v0.3.0/wectangle.exe".to_string(),
+                url: "https://github.com/x/releases/download/v0.3.0/wrecktangle.exe".to_string(),
             }
         );
     }
@@ -742,7 +743,7 @@ mod tests {
                 secure: true,
                 host: "api.github.com".to_string(),
                 port: 443,
-                path: "/repos/zolferfigueiredo/wectangle/releases/latest".to_string(),
+                path: "/repos/zolferfigueiredo/wrecktangle/releases/latest".to_string(),
             })
         );
         assert_eq!(
@@ -787,7 +788,7 @@ mod tests {
     #[test]
     fn only_web_links_are_openable() {
         assert!(is_openable_url("https://github.com/x/releases"));
-        assert!(is_openable_url("http://localhost:8000/wectangle.exe"));
+        assert!(is_openable_url("http://localhost:8000/wrecktangle.exe"));
         assert!(!is_openable_url("file:///c:/windows/system32/calc.exe"));
         assert!(!is_openable_url("c:\\windows\\system32\\calc.exe"));
         assert!(!is_openable_url("ms-settings:"));
@@ -829,18 +830,18 @@ mod tests {
             true,
         )
         .unwrap();
-        let (status, body) = fetch(&url, "Wectangle/test").unwrap();
+        let (status, body) = fetch(&url, "Wrecktangle/test").unwrap();
         let request = server.join().unwrap().to_ascii_lowercase();
         assert_eq!(status, 200);
         assert_eq!(body, RELEASE_JSON);
         assert!(request.starts_with("get /repos/x/y/releases/latest http/1.1"));
-        assert!(request.contains("user-agent: wectangle/test"));
+        assert!(request.contains("user-agent: wrecktangle/test"));
         assert!(request.contains("accept: application/vnd.github+json"));
         assert_eq!(
             evaluate(status, &body, "0.2.0", 1),
             State::Available {
                 version: "0.3.0".to_string(),
-                url: "https://github.com/x/releases/download/v0.3.0/wectangle.exe".to_string(),
+                url: "https://github.com/x/releases/download/v0.3.0/wrecktangle.exe".to_string(),
             }
         );
     }
@@ -850,7 +851,7 @@ mod tests {
     fn fetch_returns_a_404_as_a_status_not_an_error() {
         let (port, server) = serve_once("404 Not Found", r#"{"message":"Not Found"}"#);
         let url = parse_url(&format!("http://127.0.0.1:{port}/x"), true).unwrap();
-        let (status, body) = fetch(&url, "Wectangle/test").unwrap();
+        let (status, body) = fetch(&url, "Wrecktangle/test").unwrap();
         server.join().unwrap();
         assert_eq!(evaluate(status, &body, "0.2.0", 1), State::NoReleases);
     }
@@ -864,7 +865,7 @@ mod tests {
         };
         let url = parse_url(&format!("http://127.0.0.1:{port}/x"), true).unwrap();
         assert_eq!(
-            fetch(&url, "Wectangle/test"),
+            fetch(&url, "Wrecktangle/test"),
             Err("could not connect".to_string())
         );
     }

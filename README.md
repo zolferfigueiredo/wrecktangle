@@ -1,4 +1,6 @@
-# Wectangle
+<p align="center"><img src="assets/wrecktangle.svg" width="128" alt="Wrecktangle logo"></p>
+
+# Wrecktangle
 
 A Rectangle-style keyboard window manager for Windows, written in Rust. It
 moves and resizes the focused window with global keyboard shortcuts: no
@@ -17,7 +19,7 @@ set of sizes.
   takeover).
 - A tray icon with a Windows 11 style Settings window (Slint, Fluent style,
   following the system light or dark theme) for changing any shortcut, the
-  size cycle, and whether Wectangle launches at startup. Changes apply as you
+  size cycle, and whether Wrecktangle launches at startup. Changes apply as you
   make them. Settings also names the app that a taken-over shortcut
   overrides, for example "Overrides PowerToys Peek".
 - Twelve languages (German, English, Spanish, French, Italian, Polish,
@@ -57,32 +59,47 @@ manifest.
 
 ```
 cargo build --release
-target\release\wectangle.exe
+target\release\wrecktangle.exe
 ```
 
 On Windows, double-click `run.bat` to build whatever changed and (re)start
-Wectangle, or `build.bat` to only build it.
+Wrecktangle, or `build.bat` to only build it.
 
 Running the executable a second time brings up the Settings window of the
 already running instance instead of starting a second copy.
 
 ### Installing it for everyday use
 
-Copy `target\release\wectangle.exe` somewhere permanent, for example
-`%LOCALAPPDATA%\Programs\Wectangle`, run it from there, and turn on "Launch
+Copy `target\release\wrecktangle.exe` somewhere permanent, for example
+`%LOCALAPPDATA%\Programs\Wrecktangle`, run it from there, and turn on "Launch
 at startup" from the tray menu or the Settings window.
+
+### Upgrading from Wectangle
+
+Wrecktangle used to be called Wectangle. On its first start it closes a
+running Wectangle, copies `%APPDATA%\Wectangle\config.json` to
+`%APPDATA%\Wrecktangle\config.json`, and moves the "Launch at startup" entry
+to the new exe. The old `wectangle.exe` and `%APPDATA%\Wectangle` can be
+deleted afterwards.
+
+### Icon
+
+`assets/wrecktangle.svg` is the logo, and `assets/wrecktangle-16.svg` to
+`-32.svg` are pixel-snapped versions for the tray and title bar sizes. After
+changing any of them, run `cargo run --example make_icon` to render them into
+`wrecktangle.ico` and the 256 px PNG on the About page.
 
 ### Releasing
 
 Bump `version` in `Cargo.toml`, then push a tag named `v` plus that version
 (for example `v0.2.0`). The Release workflow checks the tag against
-`Cargo.toml`, builds `wectangle.exe` and publishes it as a GitHub release.
+`Cargo.toml`, builds `wrecktangle.exe` and publishes it as a GitHub release.
 
 ### Developer overrides
 
-- `WECTANGLE_THEME=light` or `dark` forces the Settings theme instead of
+- `WRECKTANGLE_THEME=light` or `dark` forces the Settings theme instead of
   following Windows.
-- `WECTANGLE_UPDATE_URL` replaces the GitHub releases API URL for the update
+- `WRECKTANGLE_UPDATE_URL` replaces the GitHub releases API URL for the update
   check, so a local server can stand in for GitHub. Plain `http://` is
   accepted only through this variable.
 
@@ -97,20 +114,20 @@ git config core.hooksPath .githooks
 
 ## Configuration
 
-Settings are stored at `%APPDATA%\Wectangle\config.json`. It holds the size
+Settings are stored at `%APPDATA%\Wrecktangle\config.json`. It holds the size
 cycle, the shortcut assigned to each action, `language` (a two letter code),
 `check_updates` (default `true`) and `last_update_check` (a Unix time in
-seconds, maintained by Wectangle).
+seconds, maintained by Wrecktangle).
 Edit it through the Settings window; a hand-edited file that fails to parse
 falls back to defaults with a notification, and is left untouched until you
 change something in Settings.
 
 ## Shortcut takeover
 
-Wectangle first asks Windows to register each shortcut. When another app, or
-Windows itself, already owns one, Wectangle takes it over with one global
+Wrecktangle first asks Windows to register each shortcut. When another app, or
+Windows itself, already owns one, Wrecktangle takes it over with one global
 low-level keyboard hook, installed only while at least one shortcut needs it.
-While the hook is on, the taken-over chord triggers Wectangle's action and is
+While the hook is on, the taken-over chord triggers Wrecktangle's action and is
 hidden from the owner and from the focused app. Settings shows the status as
 "Overrides <app>".
 
@@ -122,16 +139,16 @@ hidden from the owner and from the focused app. Settings shows the status as
   Windows Magnifier and the default Claude shortcut while those apps run.
   Only hotkey fields are read; tokens and other settings in those files are
   ignored.
-- The hook runs on Wectangle's UI thread. If that thread stalls, Windows can
+- The hook runs on Wrecktangle's UI thread. If that thread stalls, Windows can
   stop calling the hook, and taken-over shortcuts stop working until
-  Wectangle restarts.
+  Wrecktangle restarts.
 
 ## Updates
 
-Wectangle asks `api.github.com` for the latest release of this repository 30
+Wrecktangle asks `api.github.com` for the latest release of this repository 30
 seconds after it starts, if 24 hours have passed since the last check, and
 then every 24 hours. When a newer version exists, a tray notification says so
-and clicking it opens the download in your browser. Wectangle never installs
+and clicking it opens the download in your browser. Wrecktangle never installs
 anything itself.
 
 Turn the automatic check off with "Check for updates automatically" in
@@ -141,7 +158,7 @@ check on demand.
 ## Limitations
 
 - **Admin windows.** Windows running as administrator cannot be moved by a
-  non-elevated Wectangle, because of UIPI. Wectangle detects this up front
+  non-elevated Wrecktangle, because of UIPI. Wrecktangle detects this up front
   and shows a one-time notification instead of failing silently.
 - **AltGr note.** On a US-International keyboard layout, Ctrl+Alt+<key> is
   the same key chord as AltGr+<key>. Assigning a shortcut that way can block

@@ -6,7 +6,9 @@ use windows::Win32::System::Registry::{
 use windows::core::{Error, HRESULT, PCWSTR, w};
 
 const RUN_KEY_PATH: PCWSTR = w!("Software\\Microsoft\\Windows\\CurrentVersion\\Run");
-const VALUE_NAME: PCWSTR = w!("Wectangle");
+const VALUE_NAME: PCWSTR = w!("Wrecktangle");
+// Written by the app under its earlier name, Wectangle.
+const LEGACY_VALUE_NAME: PCWSTR = w!("Wectangle");
 
 fn check(err: WIN32_ERROR) -> windows::core::Result<()> {
     if err.0 == 0 {
@@ -89,6 +91,30 @@ pub fn set_enabled(enabled: bool) -> windows::core::Result<()> {
 
         let _ = RegCloseKey(hkey);
         result
+    }
+}
+
+/// Replaces a launch-at-startup entry left under the old name with one for
+/// this exe.
+pub fn migrate_legacy() {
+    unsafe {
+        let mut hkey = HKEY::default();
+        if check(RegOpenKeyExW(
+            HKEY_CURRENT_USER,
+            RUN_KEY_PATH,
+            Some(0),
+            KEY_WRITE,
+            &mut hkey,
+        ))
+        .is_err()
+        {
+            return;
+        }
+        let had_legacy = RegDeleteValueW(hkey, LEGACY_VALUE_NAME).0 == 0;
+        let _ = RegCloseKey(hkey);
+        if had_legacy {
+            let _ = set_enabled(true);
+        }
     }
 }
 

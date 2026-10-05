@@ -1,4 +1,4 @@
-//! Names the app that most likely owns a shortcut Wectangle had to take
+//! Names the app that most likely owns a shortcut Wrecktangle had to take
 //! over. Sources are read-only and limited to hotkey settings: other keys in
 //! those files (tokens, device keys) are never deserialized or kept.
 

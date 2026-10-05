@@ -4658,18 +4658,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "wectangle"
-version = "0.2.0"
-dependencies = [
- "embed-resource",
- "serde",
- "serde_json",
- "slint",
- "slint-build",
- "windows",
-]
-
-[[package]]
 name = "weezl"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5190,6 +5178,19 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",
+]
+
+[[package]]
+name = "wrecktangle"
+version = "0.2.0"
+dependencies = [
+ "embed-resource",
+ "resvg",
+ "serde",
+ "serde_json",
+ "slint",
+ "slint-build",
+ "windows",
 ]
 
 [[package]]
