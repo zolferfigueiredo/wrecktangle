@@ -1,35 +1,82 @@
-<p align="center"><img src="assets/wrecktangle.svg" width="128" alt="Wrecktangle logo"></p>
+<p align="center">
+  <img src="assets/wrecktangle.svg" width="128" height="128" alt="Wrecktangle logo">
+</p>
 
-# Wrecktangle
+<h1 align="center">Wrecktangle</h1>
 
-A Rectangle-style keyboard window manager for Windows, written in Rust. It
-moves and resizes the focused window with global keyboard shortcuts: no
-dragging, no snap zones. Repeating a shortcut cycles through a configurable
-set of sizes.
+<h3 align="center">Snap windows from the keyboard.</h3>
+
+<p align="center">
+  A <a href="https://rectangleapp.com">Rectangle</a>-style window manager for Windows, written in Rust.<br>
+  Send the focused window to a half, a corner or the center with one shortcut, and press it again to change its size.
+</p>
+
+<p align="center">
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.2.2-blue" alt="Latest release"></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024%20edition-orange" alt="Rust 2024 edition"></a>
+  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue" alt="Windows 10 or 11">
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml"><img src="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest/download/Wrecktangle-x64-setup.exe"><b>Download for Windows</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest/download/Wrecktangle-x64.zip">Portable zip</a>
+</p>
+
+## Install
+
+1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/latest/download/Wrecktangle-x64-setup.exe)
+   and run it. It installs for your user only, into
+   `%LOCALAPPDATA%\Programs\Wrecktangle`, and never asks for admin rights. It
+   isn't code signed yet, so if Windows SmartScreen says it protected your PC,
+   click **More info**, then **Run anyway**.
+2. Tick **Launch at startup** to have Wrecktangle start every time you sign in.
+   It runs from the tray.
+3. Press Ctrl+Alt+Left. The focused window fills the left half of its screen.
+   Press it again for two thirds, and again for three quarters.
+
+Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/latest/download/Wrecktangle-x64.zip):
+put `wrecktangle.exe` somewhere permanent, run it from there, and turn on
+**Launch at startup** from the tray menu.
+
+You need Windows 10 or 11, 64-bit. Uninstall it from Apps in Windows Settings.
+
+**Coming from Wectangle?** Wrecktangle used to be called Wectangle. On its
+first start it closes a running Wectangle, copies
+`%APPDATA%\Wectangle\config.json` to `%APPDATA%\Wrecktangle\config.json`, and
+moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
+`%APPDATA%\Wectangle` can be deleted afterwards.
 
 ## Features
 
-- Global shortcuts to snap the focused window to a side, a corner, the top,
-  the bottom, or the center of its monitor.
-- Repeating a shortcut steps through a size cycle. Pick any of 1/2, 2/3, 3/4,
-  1/4 and 1/3 of the work area in Settings (1/2, 2/3 and 3/4 by default).
-- Maximize and restore, and moving a window to the next or previous monitor.
-- Shortcuts that Windows or another app already owns, such as
-  Alt+Win+Left/Right, are taken over instead of refused (see Shortcut
-  takeover).
-- A tray icon with a Windows 11 style Settings window (drawn with Direct2D,
-  following the system light or dark theme) for changing any shortcut, the
-  size cycle, and whether Wrecktangle launches at startup. Changes apply as you
-  make them. Settings also names the app that a taken-over shortcut
-  overrides, for example "Overrides PowerToys Peek".
-- Twelve languages (German, English, Spanish, French, Italian, Polish,
-  Portuguese, Russian, Ukrainian, Chinese, Japanese and Korean), chosen in
-  Settings under General. The first run follows the Windows display language.
-  Settings, the tray menu and notifications switch as soon as you pick one.
-- Update checks against GitHub Releases, on demand or once a day (see
-  Updates).
-- No admin rights required, unless the window you want to move is itself
-  running as administrator (see Limitations).
+- **One shortcut per spot.** The left, right, top and bottom halves, the four
+  corners, the center, and maximize or restore. No dragging, no snap zones.
+- **Press again to resize.** Repeating a shortcut steps through a size cycle:
+  1/2, 2/3 and 3/4 of the screen by default, or any mix of 1/4, 1/3, 1/2, 2/3
+  and 3/4.
+- **Every monitor.** Move a window to the next or previous display with a
+  shortcut.
+- **Lines up exactly.** Sizes use the window's visible frame, so snapped windows
+  meet edge to edge without the gap Windows' invisible resize border leaves.
+- **Takes over busy shortcuts.** When Windows or another app already owns a
+  chord, such as Alt+Win+Left, Wrecktangle takes it over instead of giving up,
+  and Settings names the app it overrides, for example "Overrides PowerToys
+  Peek".
+- **A Windows 11 style Settings window.** Fluent design, following the light or
+  dark theme. Change any shortcut, the size cycle or launch at startup, and
+  every change applies as you make it.
+- **Speaks 12 languages.** Deutsch, English, Español, Français, Italiano,
+  Polski, Português, Русский, Українська, 中文, 日本語 and 한국어. The first run
+  follows the Windows display language, and **Language** in Settings switches
+  Settings, the tray menu and notifications at once.
+- **Tells you about updates.** It checks GitHub once a day or on demand, and a
+  notification links to the new installer. It never installs anything by
+  itself.
+- **No admin rights.** Unless the window you want to move runs as administrator
+  (see [Limitations](#limitations)).
+- **Lives in the tray.** Opening it again while it runs brings up Settings
+  instead of a second copy.
 
 ## Default shortcuts
 
@@ -48,81 +95,12 @@ set of sizes.
 | Next display | Ctrl+Alt+Win+Right |
 | Previous display | Ctrl+Alt+Win+Left |
 
-Every shortcut can be changed from the tray icon's Settings window.
+Every shortcut can be changed in Settings, from the tray icon.
 
-## Build and run
+## How it works
 
-Requires a stable Rust toolchain (see `rust-toolchain.toml`; rustup installs
-it automatically), the MSVC "Desktop development with C++" build tools, and
-a Windows 10 SDK, since the build links against Win32 and embeds an icon and
-manifest.
-
-```
-cargo build --release
-target\release\wrecktangle.exe
-```
-
-On Windows, double-click `run.bat` to build whatever changed and (re)start
-Wrecktangle, or `build.bat` to only build it.
-
-Running the executable a second time brings up the Settings window of the
-already running instance instead of starting a second copy.
-
-### Installing it for everyday use
-
-Copy `target\release\wrecktangle.exe` somewhere permanent, for example
-`%LOCALAPPDATA%\Programs\Wrecktangle`, run it from there, and turn on "Launch
-at startup" from the tray menu or the Settings window.
-
-### Upgrading from Wectangle
-
-Wrecktangle used to be called Wectangle. On its first start it closes a
-running Wectangle, copies `%APPDATA%\Wectangle\config.json` to
-`%APPDATA%\Wrecktangle\config.json`, and moves the "Launch at startup" entry
-to the new exe. The old `wectangle.exe` and `%APPDATA%\Wectangle` can be
-deleted afterwards.
-
-### Icon
-
-`assets/wrecktangle.svg` is the logo, and `assets/wrecktangle-16.svg` to
-`-32.svg` are pixel-snapped versions for the tray and title bar sizes. After
-changing any of them, run `cargo run --example make_icon` to render them into
-`wrecktangle.ico` and the 256 px PNG on the About page.
-
-### Releasing
-
-Bump `version` in `Cargo.toml`, then push a tag named `v` plus that version
-(for example `v0.2.0`). The Release workflow checks the tag against
-`Cargo.toml`, builds `wrecktangle.exe` and publishes it as a GitHub release.
-
-### Developer overrides
-
-- `WRECKTANGLE_THEME=light` or `dark` forces the theme of the Settings window
-  and menus instead of following Windows.
-- `WRECKTANGLE_UPDATE_URL` replaces the GitHub releases API URL for the update
-  check, so a local server can stand in for GitHub. Plain `http://` is
-  accepted only through this variable.
-
-### Enabling the pre-commit hook
-
-This repository ships a hook that checks formatting and rejects em or en
-dashes in `src/*.rs`. After cloning, enable it once with:
-
-```
-git config core.hooksPath .githooks
-```
-
-## Configuration
-
-Settings are stored at `%APPDATA%\Wrecktangle\config.json`. It holds the size
-cycle, the shortcut assigned to each action, `language` (a two letter code),
-`check_updates` (default `true`) and `last_update_check` (a Unix time in
-seconds, maintained by Wrecktangle).
-Edit it through the Settings window; a hand-edited file that fails to parse
-falls back to defaults with a notification, and is left untouched until you
-change something in Settings.
-
-## Shortcut takeover
+<details>
+<summary><b>Shortcut takeover</b></summary>
 
 Wrecktangle first asks Windows to register each shortcut. When another app, or
 Windows itself, already owns one, Wrecktangle takes it over with one global
@@ -143,17 +121,36 @@ hidden from the owner and from the focused app. Settings shows the status as
   stop calling the hook, and taken-over shortcuts stop working until
   Wrecktangle restarts.
 
-## Updates
+</details>
+
+<details>
+<summary><b>Updates</b></summary>
 
 Wrecktangle asks `api.github.com` for the latest release of this repository 30
 seconds after it starts, if 24 hours have passed since the last check, and
 then every 24 hours. When a newer version exists, a tray notification says so
-and clicking it opens the download in your browser. Wrecktangle never installs
-anything itself.
+and clicking it downloads the new installer in your browser. Wrecktangle never
+installs anything itself.
 
 Turn the automatic check off with "Check for updates automatically" in
 Settings. The tray menu's "Check for updates..." and Settings' "Check now"
 check on demand.
+
+</details>
+
+<details>
+<summary><b>The settings file</b></summary>
+
+Settings are stored at `%APPDATA%\Wrecktangle\config.json`. It holds the size
+cycle, the shortcut assigned to each action, `language` (a two letter code),
+`check_updates` (default `true`) and `last_update_check` (a Unix time in
+seconds, maintained by Wrecktangle).
+
+Edit it through the Settings window; a hand-edited file that fails to parse
+falls back to defaults with a notification, and is left untouched until you
+change something in Settings.
+
+</details>
 
 ## Limitations
 
@@ -173,6 +170,87 @@ check on demand.
   Change any of these from the Settings window if they conflict with how you
   work.
 
+## Build from source
+
+Needs a stable Rust toolchain (see `rust-toolchain.toml`; rustup installs it
+automatically), the MSVC "Desktop development with C++" build tools, and a
+Windows 10 SDK, since the build links against Win32 and embeds an icon and
+manifest.
+
+```
+cargo build --release
+target\release\wrecktangle.exe
+```
+
+Double-click `run.bat` to build whatever changed and (re)start Wrecktangle, or
+`build.bat` to only build it. Both close a running Wrecktangle first, since it
+locks the exe. `installer.bat` builds the installer,
+`dist\Wrecktangle-<version>-x64-setup.exe`; it needs Inno Setup 6
+(`winget install JRSoftware.InnoSetup`).
+
+The repository ships a pre-commit hook that refuses commits on `main`, checks
+formatting and rejects em or en dashes in `src/*.rs`. Turn it on once after
+cloning:
+
+```
+git config core.hooksPath .githooks
+```
+
+**Release.** Bump `version` in `Cargo.toml` and in the release badge at the
+top of this README (CI fails while they differ), then push a tag named `v`
+plus that version (for example `v0.2.0`). The Release workflow checks the tag
+against `Cargo.toml`, builds `wrecktangle.exe` on Linux, packs it into a zip
+and an Inno Setup installer (run under Wine in Docker), and publishes a GitHub
+release named "Wrecktangle <version>" with:
+
+- `Wrecktangle-<version>-x64-setup.exe` and `Wrecktangle-<version>-x64.zip`
+- `Wrecktangle-x64-setup.exe` and `Wrecktangle-x64.zip`, the same files
+  under fixed names, so `releases/latest/download/<name>` links never change
+- `SHA256SUMS` for the versioned files, and `latest.json` with the version
+  and the zip's SHA-256
+
+Running the workflow by hand, or a pull request that changes it or
+`installer/`, builds the same files without publishing and uploads them as a
+workflow artifact.
+
+**CI** checks every pull request on Linux, cross-compiling for Windows:
+`cargo fmt --check`, `cargo test`, Clippy with warnings as errors, and a
+release build whose `wrecktangle.exe` is uploaded as a workflow artifact.
+
+<details>
+<summary><b>Developer overrides</b></summary>
+
+- `WRECKTANGLE_THEME=light` or `dark` forces the theme of the Settings window
+  and menus instead of following Windows.
+- `WRECKTANGLE_UPDATE_URL` replaces the GitHub releases API URL for the update
+  check, so a local server can stand in for GitHub. Plain `http://` is
+  accepted only through this variable.
+
+</details>
+
+<details>
+<summary><b>Icon</b></summary>
+
+`assets/wrecktangle.svg` is the logo, and `assets/wrecktangle-16.svg` to
+`-32.svg` are pixel-snapped versions for the tray and title bar sizes. After
+changing any of them, run `cargo run --example make_icon` to render them into
+`wrecktangle.ico` and the 256 px PNG on the About page.
+
+</details>
+
 ## Credits
 
-- Inspired by [Rectangle](https://rectangleapp.com) by Ryan Hanson, the macOS window manager.
+- Inspired by [Rectangle](https://rectangleapp.com) by Ryan Hanson, the macOS
+  window manager. Wrecktangle is an independent Windows app, not affiliated
+  with Rectangle.
+
+---
+
+<p align="center">
+  If Wrecktangle is useful to you, please consider giving it a ⭐<br>
+  It helps other Windows users find it. Thank you!
+</p>
+
+<p align="center">
+  Made with ❤️ by <a href="https://zolfer.com">zolfer.com</a>
+</p>

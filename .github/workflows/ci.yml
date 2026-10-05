@@ -11,6 +11,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Check the README release badge matches the Cargo version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          if ! grep -qF "img.shields.io/badge/release-v$version-blue" README.md; then
+            echo "The release badge in README.md does not show v$version from Cargo.toml" >&2
+            exit 1
+          fi
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64
       - run: rustup toolchain install && rustup target add x86_64-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2.9.2
