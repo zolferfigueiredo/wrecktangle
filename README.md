@@ -60,8 +60,8 @@ cargo build --release
 target\release\wectangle.exe
 ```
 
-On Windows, double-click `run.bat` to (re)start Wectangle (it builds once if
-needed) or `build.bat` to rebuild after changing the code.
+On Windows, double-click `run.bat` to build whatever changed and (re)start
+Wectangle, or `build.bat` to only build it.
 
 Running the executable a second time brings up the Settings window of the
 already running instance instead of starting a second copy.
