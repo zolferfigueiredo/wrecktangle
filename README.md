@@ -14,21 +14,15 @@
 <p align="center">
   <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.4.0-blue" alt="Latest release"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024%20edition-orange" alt="Rust 2024 edition"></a>
-  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue" alt="Windows 10 or 11">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x64%20%7C%20x86)-blue" alt="Windows 10 or 11, 64-bit or 32-bit">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT license"></a>
   <a href="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml"><img src="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <a href="https://wrecktangle.zolfer.com"><img src="https://img.shields.io/badge/Website-wrecktangle.zolfer.com-informational" alt="Website"></a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.0/Wrecktangle-0.4.0-x64-setup.exe"><b>Download for Windows</b></a>
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><b>Download for Windows</b></a> (64-bit and 32-bit)
   &nbsp;·&nbsp;
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.0/Wrecktangle-0.4.0-x64.zip">Portable zip</a>
-  <br>
-  <sub>32-bit Windows:
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.0/Wrecktangle-0.4.0-x86-setup.exe">installer</a>
-  &nbsp;·&nbsp;
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.0/Wrecktangle-0.4.0-x86.zip">portable zip</a></sub>
+  <a href="https://wrecktangle.zolfer.com">Website</a>
 </p>
 
 <p align="center">
