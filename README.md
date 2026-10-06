@@ -17,7 +17,7 @@
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue" alt="Windows 10 or 11">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License"></a>
   <a href="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml"><img src="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <a href="https://zolfer.com"><img src="https://img.shields.io/badge/Website-zolfer.com-informational" alt="Website"></a>
+  <a href="https://wrecktangle.zolfer.com"><img src="https://img.shields.io/badge/Website-wrecktangle.zolfer.com-informational" alt="Website"></a>
 </p>
 
 <p align="center">
