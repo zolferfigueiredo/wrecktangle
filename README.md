@@ -7,7 +7,7 @@
 <h3 align="center">Snap windows from the keyboard.</h3>
 
 <p align="center">
-  A <a href="https://rectangleapp.com">Rectangle</a>-style window manager for Windows, written in Rust.<br>
+  A Rectangle-style window manager for Windows, written in Rust.<br>
   Send the focused window to a half, a corner or the center with one shortcut, and press it again to change its size.
 </p>
 
