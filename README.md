@@ -15,7 +15,9 @@
   <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.4.0-blue" alt="Latest release"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024%20edition-orange" alt="Rust 2024 edition"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-blue" alt="Windows 10 or 11">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-green" alt="MIT License"></a>
   <a href="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml"><img src="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="https://zolfer.com"><img src="https://img.shields.io/badge/Website-zolfer.com-informational" alt="Website"></a>
 </p>
 
 <p align="center">
