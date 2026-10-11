@@ -9,6 +9,12 @@
 #ifndef SourceExe
   #define SourceExe "..\target\release\wrecktangle.exe"
 #endif
+; VersionInfoVersion takes numbers only, so a pre-release like 0.4.1-beta gives 0.4.1 there.
+#if Pos("-", AppVersion) > 0
+  #define NumericVersion Copy(AppVersion, 1, Pos("-", AppVersion) - 1)
+#else
+  #define NumericVersion AppVersion
+#endif
 
 [Setup]
 AppId={{5FC369EA-4EC3-4B23-9F2C-DAA462C9BD79}
@@ -38,7 +44,7 @@ OutputDir=..\dist
 SetupIconFile=..\assets\wrecktangle.ico
 UninstallDisplayIcon={app}\wrecktangle.exe
 UninstallDisplayName=Wrecktangle
-VersionInfoVersion={#AppVersion}.0
+VersionInfoVersion={#NumericVersion}.0
 WizardStyle=modern
 Compression=lzma2
 SolidCompression=yes
