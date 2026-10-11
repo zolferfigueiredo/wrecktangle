@@ -87,3 +87,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\wrecktangle.exe"; Description: "{cm:LaunchProgram,Wrecktangle}"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+; The app moves the Run value above to a logon task named by task_name in src/startup.rs.
+Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""Wrecktangle ({username})"" /F"; Flags: runhidden; RunOnceId: "DeleteStartupTask"
