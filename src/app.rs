@@ -47,6 +47,7 @@ struct State {
     admin_notice_shown: bool,
     config_invalid: bool,
     update_notified: Option<String>,
+    pending_notices: Vec<String>,
 }
 
 thread_local! {
@@ -89,6 +90,7 @@ pub fn init() -> windows::core::Result<HWND> {
         let path = config::config_path();
         let _ = config::migrate_legacy(&config::legacy_config_path(), &path);
         crate::startup::migrate_legacy();
+        crate::startup::migrate_run_value();
         let (mut config, source) = config::load(&path);
         let language_unset = config.language.is_empty();
         if language_unset {
@@ -112,13 +114,31 @@ pub fn init() -> windows::core::Result<HWND> {
                 admin_notice_shown: false,
                 config_invalid: source == config::Source::Invalid,
                 update_notified: None,
+                pending_notices: Vec::new(),
             });
         });
 
         theme::apply_dark_menu(theme::current_mode() == theme::Mode::Dark);
 
         let failed = register_all(hwnd);
-        tray::add(hwnd)?;
+        let mut notices = Vec::new();
+        if source == config::Source::Invalid {
+            notices.push(lang::t("notify.config_invalid"));
+        }
+        if !failed.is_empty() {
+            notices.push(failed_message(&failed));
+        }
+        // Started by the logon task, the app can run before Explorer has made
+        // the taskbar. TaskbarCreated then adds the icon and shows these.
+        if tray::add(hwnd).is_ok() {
+            show_notices(hwnd, notices);
+        } else {
+            STATE.with(|s| {
+                if let Some(state) = s.borrow_mut().as_mut() {
+                    state.pending_notices = notices;
+                }
+            });
+        }
         SetTimer(
             Some(hwnd),
             TIMER_UPDATE_STARTUP,
@@ -131,13 +151,6 @@ pub fn init() -> windows::core::Result<HWND> {
             UPDATE_DAILY_INTERVAL_MS,
             None,
         );
-
-        if source == config::Source::Invalid {
-            tray::notify(hwnd, "Wrecktangle", &lang::t("notify.config_invalid"));
-        }
-        if !failed.is_empty() {
-            tray::notify(hwnd, "Wrecktangle", &failed_message(&failed));
-        }
 
         Ok(hwnd)
     }
@@ -235,6 +248,12 @@ fn notify_update_available(hwnd: HWND) {
             "Wrecktangle",
             &lang::format("notify.update_available", &[("version", &version)]),
         );
+    }
+}
+
+fn show_notices(hwnd: HWND, notices: Vec<String>) {
+    for notice in notices {
+        tray::notify(hwnd, "Wrecktangle", &notice);
     }
 }
 
@@ -446,8 +465,14 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                     .map(|st| st.taskbar_created != 0 && st.taskbar_created == msg)
                     .unwrap_or(false)
             });
-            if is_taskbar_created {
-                let _ = tray::add(hwnd);
+            if is_taskbar_created && tray::add(hwnd).is_ok() {
+                let notices = STATE.with(|s| {
+                    s.borrow_mut()
+                        .as_mut()
+                        .map(|st| std::mem::take(&mut st.pending_notices))
+                        .unwrap_or_default()
+                });
+                show_notices(hwnd, notices);
             }
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
