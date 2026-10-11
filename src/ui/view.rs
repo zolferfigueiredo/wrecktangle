@@ -54,9 +54,12 @@ pub struct Model {
     pub wrecktangle_colors: bool,
     pub startup: bool,
     pub auto_update: bool,
+    pub auto_install: bool,
     pub update_status: String,
     pub update_detail: String,
     pub update_available: bool,
+    /// The update installs itself; otherwise its button opens the download.
+    pub update_installable: bool,
     pub update_busy: bool,
     pub about_version: String,
 }
@@ -90,8 +93,9 @@ pub enum Target {
     Size(usize),
     Startup,
     AutoUpdate,
+    AutoInstall,
     CheckNow,
-    Download,
+    Update,
     Link(Link),
 }
 
@@ -779,6 +783,17 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
             Trailing::Switch(Target::AutoUpdate, model.auto_update),
         );
         y = b.divider(x, y, w);
+        y += setting_row(
+            b,
+            model,
+            x,
+            y,
+            w,
+            &lang::t("general.auto_install"),
+            &lang::t("general.auto_install_desc"),
+            Trailing::Switch(Target::AutoInstall, model.auto_install),
+        );
+        y = b.divider(x, y, w);
         y + setting_row(
             b,
             model,
@@ -815,7 +830,7 @@ fn setting_row<S: Shaper>(
         _ => None,
     };
     let download = (matches!(trailing, Trailing::UpdateButtons) && model.update_available)
-        .then(|| b.button("button.download"));
+        .then(|| b.button(update_button_key(model)));
     let check_now =
         matches!(trailing, Trailing::UpdateButtons).then(|| b.button("button.check_now"));
 
@@ -893,7 +908,7 @@ fn setting_row<S: Shaper>(
         Trailing::UpdateButtons => {
             let mut bx = tx;
             if let Some(download) = &download {
-                b.place_button(download, Target::Download, bx, ty, true, true);
+                b.place_button(download, Target::Update, bx, ty, true, true);
                 bx += download.w + 8.0;
             }
             if let Some(check) = &check_now {
@@ -902,6 +917,14 @@ fn setting_row<S: Shaper>(
         }
     }
     h
+}
+
+fn update_button_key(model: &Model) -> &'static str {
+    if model.update_installable {
+        "button.update_now"
+    } else {
+        "button.download"
+    }
 }
 
 /// The size cycle check boxes under their setting row; returns the height.
@@ -966,7 +989,12 @@ fn about_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32, viewport
         !model.update_busy,
     )];
     if model.update_available {
-        buttons.push((b.button("button.download"), Target::Download, true, true));
+        buttons.push((
+            b.button(update_button_key(model)),
+            Target::Update,
+            true,
+            true,
+        ));
     }
     blocks.push(Block::Buttons(buttons));
     if !model.update_detail.is_empty() {
@@ -1696,14 +1724,42 @@ mod tests {
     }
 
     #[test]
-    fn download_shows_only_when_an_update_is_available() {
+    fn update_button_shows_only_when_an_update_is_available() {
         for page in [Page::General, Page::About] {
             let mut m = model();
             m.page = page;
-            assert!(!lay(&m).has_target(Target::Download));
+            assert!(!lay(&m).has_target(Target::Update));
             m.update_available = true;
-            assert!(lay(&m).has_target(Target::Download));
+            assert!(lay(&m).has_target(Target::Update));
         }
+    }
+
+    #[test]
+    fn update_button_says_update_now_when_the_update_installs_itself() {
+        let has_label = |m: &Model, key: &str| {
+            let label = lang::t(key);
+            lay(m).content.iter().any(|item| match item {
+                Item::Button { label: text, .. } => *text == label,
+                _ => false,
+            })
+        };
+        let mut m = model();
+        m.page = Page::General;
+        m.update_available = true;
+        assert!(has_label(&m, "button.download"));
+        m.update_installable = true;
+        assert!(has_label(&m, "button.update_now"));
+        assert!(!has_label(&m, "button.download"));
+    }
+
+    #[test]
+    fn install_switch_sits_under_the_check_switch() {
+        let mut m = model();
+        m.page = Page::General;
+        let order = lay(&m).focus_order();
+        let at = |t: Target| order.iter().position(|o| o.0 == t).expect("target");
+        assert_eq!(at(Target::AutoInstall), at(Target::AutoUpdate) + 1);
+        assert_eq!(at(Target::CheckNow), at(Target::AutoInstall) + 1);
     }
 
     #[test]

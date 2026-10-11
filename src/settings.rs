@@ -48,8 +48,9 @@ enum Command {
     ToggleSize(usize),
     SetStartup(bool),
     SetAutoUpdate(bool),
+    SetAutoInstall(bool),
     CheckNow,
-    Download,
+    Update,
     OpenUrl(&'static str),
 }
 
@@ -108,11 +109,16 @@ fn run(command: Command) {
             let enabled = update::auto_enabled();
             window::update(|m| m.auto_update = enabled);
         }
+        Command::SetAutoInstall(enable) => {
+            update::set_auto_install(enable);
+            let enabled = update::auto_install_enabled();
+            window::update(|m| m.auto_install = enabled);
+        }
         Command::CheckNow => {
             update::check_now();
             on_update_state_changed();
         }
-        Command::Download => update::open_download(),
+        Command::Update => update::install(),
         Command::OpenUrl(url) => update::open_url(url),
     }
 }
@@ -126,12 +132,14 @@ fn refresh_all() {
     show_sizes();
     let startup = startup::is_enabled();
     let auto_update = update::auto_enabled();
+    let auto_install = update::auto_install_enabled();
     let language = lang::current_index();
     let wrecktangle_colors = app::current_config().wrecktangle_colors;
     window::update(|m| {
         m.wrecktangle_colors = wrecktangle_colors;
         m.startup = startup;
         m.auto_update = auto_update;
+        m.auto_install = auto_install;
         m.language = language;
     });
     show_update_state();
@@ -160,12 +168,19 @@ fn show_update_state() {
     let status = update::status_line(&state);
     let detail = update::status_detail(&state);
     let available = matches!(state, update::State::Available { .. });
-    let busy = matches!(state, update::State::Checking);
+    let installable = update::can_install();
+    let busy = matches!(
+        state,
+        update::State::Checking
+            | update::State::Downloading { .. }
+            | update::State::Installing { .. }
+    );
     window::update(|m| {
         m.about_version = version;
         m.update_status = status;
         m.update_detail = detail;
         m.update_available = available;
+        m.update_installable = installable;
         m.update_busy = busy;
     });
 }

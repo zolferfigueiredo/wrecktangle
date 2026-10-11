@@ -6,7 +6,7 @@ use serde::Deserialize;
 use crate::lang;
 
 #[cfg(windows)]
-use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, WPARAM};
 #[cfg(windows)]
 use windows::Win32::Networking::WinHttp::{
     WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_FLAG_SECURE, WINHTTP_OPEN_REQUEST_FLAGS,
@@ -15,11 +15,19 @@ use windows::Win32::Networking::WinHttp::{
     WinHttpSendRequest, WinHttpSetTimeouts,
 };
 #[cfg(windows)]
+use windows::Win32::Security::Cryptography::{BCRYPT_SHA256_ALG_HANDLE, BCryptHash};
+#[cfg(windows)]
+use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_SZ, RegGetValueW};
+#[cfg(windows)]
+use windows::Win32::System::Threading::{
+    CreateProcessW, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION, STARTUPINFOW, WaitForSingleObject,
+};
+#[cfg(windows)]
 use windows::Win32::UI::Shell::ShellExecuteW;
 #[cfg(windows)]
 use windows::Win32::UI::WindowsAndMessaging::{PostMessageW, SW_SHOWNORMAL};
 #[cfg(windows)]
-use windows::core::{PCWSTR, w};
+use windows::core::{PCWSTR, PWSTR, w};
 
 const DEFAULT_URL: &str =
     "https://api.github.com/repos/zolferfigueiredo/wrecktangle/releases/latest";
@@ -33,17 +41,48 @@ const NOT_STARTED: &str = "could not start the update check";
 const UNREACHABLE: &str = "could not connect";
 const BAD_URL: &str = "invalid update URL";
 const SERVER_ANSWERED: &str = "server answered ";
+const DOWNLOAD_FAILED: &str = "the download failed";
+const BAD_CHECKSUM: &str = "the download was damaged";
+const INSTALLER_FAILED: &str = "the installer did not finish";
+const SUMS_NAME: &str = "SHA256SUMS";
 pub const AUTO_CHECK_INTERVAL_SECS: u64 = 24 * 60 * 60;
 
 #[cfg(windows)]
 const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
+#[cfg(windows)]
+const MAX_INSTALLER_BYTES: usize = 64 * 1024 * 1024;
+/// The installer closes this app before it installs, so a wait that ends
+/// with the app still running means the update did not happen.
+#[cfg(windows)]
+const INSTALLER_WAIT_MS: u32 = 2 * 60 * 1000;
+// The installer's AppId (installer/wrecktangle.iss) names this key.
+#[cfg(windows)]
+const UNINSTALL_KEY: PCWSTR = w!(
+    "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{5FC369EA-4EC3-4B23-9F2C-DAA462C9BD79}_is1"
+);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum State {
     Idle,
     Checking,
-    UpToDate { checked_at: u64 },
-    Available { version: String, url: String },
+    UpToDate {
+        checked_at: u64,
+    },
+    /// `url` is the installer, or the release page when the release has no
+    /// installer for this architecture. `error` is why the last update
+    /// attempt failed, so the next one waits for a click.
+    Available {
+        version: String,
+        url: String,
+        sums_url: Option<String>,
+        error: Option<String>,
+    },
+    Downloading {
+        version: String,
+    },
+    Installing {
+        version: String,
+    },
     NoReleases,
     Failed(String),
 }
@@ -79,9 +118,21 @@ pub fn status_line(state: &State) -> String {
             lang::format("about.version", &[("version", version)]),
             lang::t("status.up_to_date")
         ),
+        State::Available {
+            version,
+            error: Some(reason),
+            ..
+        } => lang::format(
+            "status.install_failed",
+            &[("version", version), ("reason", &failure_text(reason))],
+        ),
         State::Available { version, .. } => {
             lang::format("status.version_available", &[("version", version)])
         }
+        State::Downloading { version } => {
+            lang::format("status.downloading", &[("version", version)])
+        }
+        State::Installing { version } => lang::format("status.installing", &[("version", version)]),
         State::NoReleases => lang::t("status.no_releases"),
         State::Failed(message) => {
             lang::format("status.failed", &[("reason", &failure_text(message))])
@@ -106,6 +157,9 @@ fn failure_text(message: &str) -> String {
         NOT_STARTED => "failure.not_started",
         UNREACHABLE => "failure.unreachable",
         BAD_URL => "failure.bad_url",
+        DOWNLOAD_FAILED => "failure.download",
+        BAD_CHECKSUM => "failure.checksum",
+        INSTALLER_FAILED => "failure.installer",
         other => {
             return match other.strip_prefix(SERVER_ANSWERED) {
                 Some(code) => lang::format("failure.server", &[("code", code)]),
@@ -217,6 +271,7 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
 pub struct Release {
     pub tag: String,
     pub url: String,
+    pub sums_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -254,19 +309,23 @@ fn installer_name(tag: &str) -> String {
 
 pub fn parse_release(json: &str) -> Result<Release, &'static str> {
     let release: ReleaseJson = serde_json::from_str(json).map_err(|_| BAD_REPLY)?;
-    let installer = installer_name(&release.tag_name);
-    let asset_url = release
-        .assets
-        .into_iter()
-        .find(|a| a.name.eq_ignore_ascii_case(&installer))
-        .and_then(|a| a.browser_download_url);
-    let url = asset_url
-        .or(release.html_url)
+    let asset_url = |name: &str| {
+        release
+            .assets
+            .iter()
+            .find(|a| a.name.eq_ignore_ascii_case(name))
+            .and_then(|a| a.browser_download_url.clone())
+            .filter(|u| is_openable_url(u))
+    };
+    let url = asset_url(&installer_name(&release.tag_name))
+        .or(release.html_url.clone())
         .filter(|u| is_openable_url(u))
         .ok_or(NO_DOWNLOAD)?;
+    let sums_url = asset_url(SUMS_NAME);
     Ok(Release {
         tag: release.tag_name,
         url,
+        sums_url,
     })
 }
 
@@ -274,6 +333,66 @@ pub fn parse_release(json: &str) -> Result<Release, &'static str> {
 /// scheme from a server reply.
 pub fn is_openable_url(url: &str) -> bool {
     url.starts_with("https://") || url.starts_with("http://")
+}
+
+/// What an update needs to install itself: the installer and the
+/// SHA256SUMS that vouches for it. None when the release only offers its page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Download {
+    pub version: String,
+    pub file: String,
+    pub url: String,
+    pub sums_url: String,
+}
+
+pub fn download_for(state: &State) -> Option<Download> {
+    let State::Available {
+        version,
+        url,
+        sums_url: Some(sums_url),
+        ..
+    } = state
+    else {
+        return None;
+    };
+    let file = installer_name(version);
+    let named = url
+        .rsplit('/')
+        .next()
+        .is_some_and(|last| last.eq_ignore_ascii_case(&file));
+    named.then(|| Download {
+        version: version.clone(),
+        file,
+        url: url.clone(),
+        sums_url: sums_url.clone(),
+    })
+}
+
+/// The SHA-256 that SHA256SUMS (`sha256sum` output) lists for `file`, in
+/// lowercase hex.
+pub fn expected_sha256(sums: &str, file: &str) -> Option<String> {
+    sums.lines().find_map(|line| {
+        let (hash, name) = line.trim().split_once(char::is_whitespace)?;
+        let name = name.trim_start().trim_start_matches('*');
+        let valid = hash.len() == 64 && hash.chars().all(|c| c.is_ascii_hexdigit());
+        (valid && name.eq_ignore_ascii_case(file)).then(|| hash.to_ascii_lowercase())
+    })
+}
+
+pub fn to_hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Whether two folder paths are the same folder, as Windows compares them.
+pub fn same_dir(a: &str, b: &str) -> bool {
+    let normal = |p: &str| {
+        p.trim()
+            .replace('/', "\\")
+            .trim_end_matches('\\')
+            .to_lowercase()
+    };
+    let a = normal(a);
+    !a.is_empty() && a == normal(b)
 }
 
 pub fn evaluate(status: u16, body: &str, current: &str, now: u64) -> State {
@@ -291,6 +410,8 @@ pub fn evaluate(status: u16, body: &str, current: &str, now: u64) -> State {
                 State::Available {
                     version: latest.to_string(),
                     url: release.url,
+                    sums_url: release.sums_url,
+                    error: None,
                 }
             } else {
                 State::UpToDate { checked_at: now }
@@ -346,11 +467,18 @@ pub fn parse_url(url: &str, allow_http: bool) -> Option<Url> {
     })
 }
 
+fn url_override() -> Option<String> {
+    std::env::var(URL_OVERRIDE_VAR)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn endpoint() -> Result<Url, String> {
-    match std::env::var(URL_OVERRIDE_VAR) {
-        Ok(value) if !value.trim().is_empty() => parse_url(value.trim(), true)
+    match url_override() {
+        Some(value) => parse_url(&value, true)
             .ok_or_else(|| format!("{URL_OVERRIDE_VAR} is not a valid http or https URL")),
-        _ => parse_url(DEFAULT_URL, false).ok_or_else(|| BAD_URL.to_string()),
+        None => parse_url(DEFAULT_URL, false).ok_or_else(|| BAD_URL.to_string()),
     }
 }
 
@@ -365,6 +493,16 @@ pub fn set_auto(enabled: bool) {
 }
 
 #[cfg(windows)]
+pub fn auto_install_enabled() -> bool {
+    crate::app::current_config().install_updates
+}
+
+#[cfg(windows)]
+pub fn set_auto_install(enabled: bool) {
+    crate::app::update_config(|config| config.install_updates = enabled);
+}
+
+#[cfg(windows)]
 pub fn check_now() {
     start_check(false);
 }
@@ -374,10 +512,195 @@ pub fn check_auto() {
     start_check(true);
 }
 
+/// Whether the available update can install itself: this is the installed
+/// copy (a portable or dev copy is never replaced) and the release has an
+/// installer with checksums.
 #[cfg(windows)]
-pub fn open_download() {
-    if let State::Available { url, .. } = state() {
-        open_url(&url);
+pub fn can_install() -> bool {
+    download_for(&state()).is_some() && is_installed_copy()
+}
+
+/// Whether to install the available update without a click: the switch is
+/// on and the last attempt did not fail.
+#[cfg(windows)]
+pub fn should_install_now() -> bool {
+    matches!(state(), State::Available { error: None, .. })
+        && auto_install_enabled()
+        && can_install()
+}
+
+/// Downloads the installer, checks it against SHA256SUMS and runs it
+/// silently; the installer closes this app, installs and opens the new
+/// version. Without an installable update this opens the download in the
+/// browser, as before.
+#[cfg(windows)]
+pub fn install() {
+    let current = state();
+    let Some(download) = download_for(&current).filter(|_| is_installed_copy()) else {
+        if let State::Available { url, .. } = current {
+            open_url(&url);
+        }
+        return;
+    };
+    set_state(State::Downloading {
+        version: download.version.clone(),
+    });
+    let hwnd = crate::app::main_hwnd().0 as isize;
+    post_update_done(hwnd);
+    let spawned = std::thread::Builder::new()
+        .name("update-install".to_string())
+        .spawn(move || {
+            if let Err(reason) = download_and_run(&download, hwnd) {
+                set_state(State::Available {
+                    version: download.version.clone(),
+                    url: download.url.clone(),
+                    sums_url: Some(download.sums_url.clone()),
+                    error: Some(reason),
+                });
+            }
+            post_update_done(hwnd);
+        });
+    if spawned.is_err() {
+        set_state(current);
+    }
+}
+
+#[cfg(windows)]
+fn download_and_run(download: &Download, hwnd: isize) -> Result<(), String> {
+    let installer = fetch_file(&download.url, MAX_INSTALLER_BYTES)?;
+    let sums = fetch_file(&download.sums_url, MAX_BODY_BYTES)?;
+    let expected =
+        expected_sha256(&String::from_utf8_lossy(&sums), &download.file).ok_or(BAD_CHECKSUM)?;
+    if sha256(&installer).as_deref() != Some(expected.as_str()) {
+        return Err(BAD_CHECKSUM.to_string());
+    }
+
+    let folder = downloads_dir();
+    std::fs::create_dir_all(&folder).map_err(|_| DOWNLOAD_FAILED.to_string())?;
+    let path = folder.join(&download.file);
+    std::fs::write(&path, &installer).map_err(|_| DOWNLOAD_FAILED.to_string())?;
+
+    set_state(State::Installing {
+        version: download.version.clone(),
+    });
+    post_update_done(hwnd);
+    let process = start_installer(&path)?;
+    unsafe {
+        WaitForSingleObject(process, INSTALLER_WAIT_MS);
+        let _ = CloseHandle(process);
+    }
+    Err(INSTALLER_FAILED.to_string())
+}
+
+#[cfg(windows)]
+fn downloads_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("Wrecktangle")
+}
+
+/// Removes installers left from earlier updates.
+#[cfg(windows)]
+pub fn clean_downloads() {
+    let _ = std::fs::remove_dir_all(downloads_dir());
+}
+
+#[cfg(windows)]
+fn start_installer(path: &std::path::Path) -> Result<HANDLE, String> {
+    let mut command = to_wide(&format!(
+        "\"{}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-",
+        path.display()
+    ));
+    let startup = STARTUPINFOW {
+        cb: std::mem::size_of::<STARTUPINFOW>() as u32,
+        ..Default::default()
+    };
+    let mut info = PROCESS_INFORMATION::default();
+    unsafe {
+        CreateProcessW(
+            PCWSTR::null(),
+            Some(PWSTR(command.as_mut_ptr())),
+            None,
+            None,
+            false,
+            PROCESS_CREATION_FLAGS(0),
+            None,
+            PCWSTR::null(),
+            &startup,
+            &mut info,
+        )
+        .map_err(|_| INSTALLER_FAILED.to_string())?;
+        let _ = CloseHandle(info.hThread);
+    }
+    Ok(info.hProcess)
+}
+
+#[cfg(windows)]
+fn post_update_done(hwnd: isize) {
+    unsafe {
+        let _ = PostMessageW(
+            Some(HWND(hwnd as *mut core::ffi::c_void)),
+            crate::app::WM_APP_UPDATE_DONE,
+            WPARAM(0),
+            LPARAM(0),
+        );
+    }
+}
+
+/// Whether this exe is the copy the installer put in place, by the
+/// uninstall entry's InstallLocation.
+#[cfg(windows)]
+pub fn is_installed_copy() -> bool {
+    let Some(location) = install_location() else {
+        return false;
+    };
+    std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|dir| dir.display().to_string()))
+        .is_some_and(|dir| same_dir(&location, &dir))
+}
+
+#[cfg(windows)]
+fn install_location() -> Option<String> {
+    let mut buf = [0u16; 1024];
+    let mut len = (buf.len() * 2) as u32;
+    let err = unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            UNINSTALL_KEY,
+            w!("InstallLocation"),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buf.as_mut_ptr() as *mut core::ffi::c_void),
+            Some(&mut len),
+        )
+    };
+    if err.0 != 0 {
+        return None;
+    }
+    let chars = (len as usize / 2).min(buf.len());
+    Some(
+        String::from_utf16_lossy(&buf[..chars])
+            .trim_end_matches('\0')
+            .to_string(),
+    )
+}
+
+#[cfg(windows)]
+fn sha256(data: &[u8]) -> Option<String> {
+    let mut hash = [0u8; 32];
+    let status = unsafe { BCryptHash(BCRYPT_SHA256_ALG_HANDLE, None, data, &mut hash) };
+    status.is_ok().then(|| to_hex(&hash))
+}
+
+/// Downloads a release file. Release links are https; plain http is
+/// accepted only with the `WRECKTANGLE_UPDATE_URL` override, as for the
+/// check itself.
+#[cfg(windows)]
+fn fetch_file(url: &str, limit: usize) -> Result<Vec<u8>, String> {
+    let url = parse_url(url, url_override().is_some()).ok_or(DOWNLOAD_FAILED)?;
+    let agent = format!("Wrecktangle/{}", current_version());
+    match fetch_bytes(&url, &agent, "Accept: application/octet-stream\r\n", limit)? {
+        (200, body) => Ok(body),
+        _ => Err(DOWNLOAD_FAILED.to_string()),
     }
 }
 
@@ -479,6 +802,23 @@ impl Drop for Handle {
 
 #[cfg(windows)]
 fn fetch(url: &Url, agent: &str) -> Result<(u16, String), String> {
+    let (status, body) = fetch_bytes(
+        url,
+        agent,
+        "Accept: application/vnd.github+json\r\n",
+        MAX_BODY_BYTES,
+    )?;
+    Ok((status, String::from_utf8_lossy(&body).into_owned()))
+}
+
+// WinHTTP follows the redirect GitHub answers release downloads with.
+#[cfg(windows)]
+fn fetch_bytes(
+    url: &Url,
+    agent: &str,
+    headers: &str,
+    limit: usize,
+) -> Result<(u16, Vec<u8>), String> {
     let unreachable = |_| UNREACHABLE.to_string();
     unsafe {
         let agent_w = to_wide(agent);
@@ -515,9 +855,7 @@ fn fetch(url: &Url, agent: &str) -> Result<(u16, String), String> {
             flags,
         ))?;
 
-        let headers: Vec<u16> = "Accept: application/vnd.github+json\r\n"
-            .encode_utf16()
-            .collect();
+        let headers: Vec<u16> = headers.encode_utf16().collect();
         WinHttpSendRequest(request.0, Some(&headers), None, 0, 0, 0).map_err(unreachable)?;
         WinHttpReceiveResponse(request.0, std::ptr::null_mut()).map_err(unreachable)?;
 
@@ -548,11 +886,11 @@ fn fetch(url: &Url, agent: &str) -> Result<(u16, String), String> {
                 break;
             }
             body.extend_from_slice(&chunk[..read as usize]);
-            if body.len() > MAX_BODY_BYTES {
+            if body.len() > limit {
                 return Err(TOO_LARGE.to_string());
             }
         }
-        Ok((status as u16, String::from_utf8_lossy(&body).into_owned()))
+        Ok((status as u16, body))
     }
 }
 
@@ -572,9 +910,12 @@ mod tests {
             {"name": "notes.txt", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/notes.txt"},
             {"name": "Wrecktangle-0.2.2-x64-setup.exe", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/Wrecktangle-0.2.2-x64-setup.exe"},
             {"name": "Wrecktangle-0.3.0-x86-setup.exe", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/Wrecktangle-0.3.0-x86-setup.exe"},
-            {"name": "Wrecktangle-0.3.0-x64-setup.exe", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/Wrecktangle-0.3.0-x64-setup.exe"}
+            {"name": "Wrecktangle-0.3.0-x64-setup.exe", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/Wrecktangle-0.3.0-x64-setup.exe"},
+            {"name": "SHA256SUMS", "browser_download_url": "https://github.com/x/releases/download/v0.3.0/SHA256SUMS"}
         ]
     }"#;
+
+    const SUMS_URL: &str = "https://github.com/x/releases/download/v0.3.0/SHA256SUMS";
 
     /// The installer RELEASE_JSON offers this build's architecture.
     fn expected_installer() -> String {
@@ -640,6 +981,81 @@ mod tests {
     }
 
     #[test]
+    fn release_json_picks_the_checksums() {
+        assert_eq!(
+            parse_release(RELEASE_JSON).unwrap().sums_url.as_deref(),
+            Some(SUMS_URL)
+        );
+        let without =
+            r#"{"tag_name":"v0.3.0","html_url":"https://github.com/x/releases/tag/v0.3.0"}"#;
+        assert_eq!(parse_release(without).unwrap().sums_url, None);
+    }
+
+    fn available(url: &str, sums_url: Option<&str>) -> State {
+        State::Available {
+            version: "0.3.0".to_string(),
+            url: url.to_string(),
+            sums_url: sums_url.map(str::to_string),
+            error: None,
+        }
+    }
+
+    #[test]
+    fn an_update_installs_from_its_installer_with_checksums() {
+        assert_eq!(
+            download_for(&available(&expected_installer(), Some(SUMS_URL))),
+            Some(Download {
+                version: "0.3.0".to_string(),
+                file: format!("Wrecktangle-0.3.0-{ARCH}-setup.exe"),
+                url: expected_installer(),
+                sums_url: SUMS_URL.to_string(),
+            })
+        );
+        assert_eq!(download_for(&available(&expected_installer(), None)), None);
+        let page = "https://github.com/x/releases/tag/v0.3.0";
+        assert_eq!(download_for(&available(page, Some(SUMS_URL))), None);
+        assert_eq!(download_for(&State::Checking), None);
+    }
+
+    #[test]
+    fn checksums_are_read_from_sha256sum_output() {
+        let a = "a".repeat(64);
+        let b = "B".repeat(64);
+        let sums = format!(
+            "{a}  Wrecktangle-0.3.0-x64.zip\n{b} *Wrecktangle-0.3.0-x64-setup.exe\nnot a line\n"
+        );
+        assert_eq!(
+            expected_sha256(&sums, "Wrecktangle-0.3.0-x64-setup.exe"),
+            Some("b".repeat(64))
+        );
+        assert_eq!(
+            expected_sha256(&sums, "Wrecktangle-0.3.0-x64.zip"),
+            Some(a.clone())
+        );
+        assert_eq!(expected_sha256(&sums, "other.exe"), None);
+        assert_eq!(expected_sha256("abc  short.exe", "short.exe"), None);
+    }
+
+    #[test]
+    fn hex_is_lowercase_and_two_digits_a_byte() {
+        assert_eq!(to_hex(&[0x00, 0x0f, 0xab, 0xff]), "000fabff");
+    }
+
+    #[test]
+    fn same_dir_ignores_case_slashes_and_a_trailing_separator() {
+        assert!(same_dir(
+            "C:\\Users\\Zolfe\\AppData\\Local\\Programs\\Wrecktangle\\",
+            "c:\\users\\zolfe\\appdata\\local\\programs\\wrecktangle"
+        ));
+        assert!(same_dir("C:/Apps/Wrecktangle", "C:\\Apps\\Wrecktangle"));
+        assert!(!same_dir(
+            "C:\\Users\\Zolfe\\AppData\\Local\\Programs\\Wrecktangle",
+            "C:\\dev\\wrecktangle\\target\\release"
+        ));
+        assert!(!same_dir("", ""));
+    }
+
+    #[test]
     fn release_json_falls_back_to_the_release_page() {
         let json = r#"{"tag_name":"v0.3.0","html_url":"https://github.com/x/releases/tag/v0.3.0","assets":[{"name":"other.zip","browser_download_url":"https://example.com/other.zip"}]}"#;
         let release = parse_release(json).unwrap();
@@ -689,6 +1105,8 @@ mod tests {
             State::Available {
                 version: "0.3.0".to_string(),
                 url: expected_installer(),
+                sums_url: Some(SUMS_URL.to_string()),
+                error: None,
             }
         );
     }
@@ -750,8 +1168,31 @@ mod tests {
             status_line(&State::Available {
                 version: "9.9.9".to_string(),
                 url: "https://example.com".to_string(),
+                sums_url: None,
+                error: None,
             }),
             "Version 9.9.9 is available"
+        );
+        assert_eq!(
+            status_line(&State::Available {
+                version: "9.9.9".to_string(),
+                url: "https://example.com".to_string(),
+                sums_url: None,
+                error: Some(BAD_CHECKSUM.to_string()),
+            }),
+            "Couldn't update to 9.9.9: the download was damaged"
+        );
+        assert_eq!(
+            status_line(&State::Downloading {
+                version: "9.9.9".to_string()
+            }),
+            "Downloading version 9.9.9\u{2026}"
+        );
+        assert_eq!(
+            status_line(&State::Installing {
+                version: "9.9.9".to_string()
+            }),
+            "Installing version 9.9.9\u{2026}"
         );
         assert_eq!(status_line(&State::NoReleases), "No releases published yet");
         assert_eq!(
@@ -881,6 +1322,8 @@ mod tests {
             State::Available {
                 version: "0.3.0".to_string(),
                 url: expected_installer(),
+                sums_url: Some(SUMS_URL.to_string()),
+                error: None,
             }
         );
     }

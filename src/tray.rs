@@ -124,7 +124,7 @@ pub fn handle_callback(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) {
         }
         e if e == NIN_BALLOONUSERCLICK => {
             if UPDATE_BALLOON.with(|b| b.replace(false)) {
-                update::open_download();
+                update::install();
             }
         }
         e if e == WM_CONTEXTMENU => {
