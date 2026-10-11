@@ -29,6 +29,15 @@ impl Rect {
             && (self.w - other.w).abs() <= tolerance
             && (self.h - other.h).abs() <= tolerance
     }
+
+    pub fn shrink(&self, by: i32) -> Rect {
+        Rect {
+            x: self.x + by,
+            y: self.y + by,
+            w: self.w - 2 * by,
+            h: self.h - 2 * by,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -317,6 +326,13 @@ mod tests {
                 assert_eq!(br.right(), work.right());
             }
         }
+    }
+
+    #[test]
+    fn shrink_insets_every_side() {
+        let frame = Rect::new(2559, -1, 855, 1394);
+        assert_eq!(frame.shrink(1), Rect::new(2560, 0, 853, 1392));
+        assert_eq!(frame.shrink(0), frame);
     }
 
     #[test]

@@ -4,7 +4,8 @@ use std::ffi::c_void;
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, RECT};
 use windows::Win32::Graphics::Dwm::{
-    DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute,
+    DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DWMWA_VISIBLE_FRAME_BORDER_THICKNESS,
+    DwmGetWindowAttribute,
 };
 use windows::Win32::Graphics::Gdi::{
     EnumDisplayMonitors, GetMonitorInfoW, HDC, HMONITOR, MONITOR_DEFAULTTONEAREST, MONITORINFO,
@@ -134,7 +135,10 @@ struct Insets {
 
 // The visible DWM frame and how much larger the raw window rect is on each
 // edge; SetWindowPos operates on the raw rect, so the insets must be added
-// back to land the visible frame on the intended target.
+// back to land the visible frame on the intended target. The frame excludes
+// the border Windows 11 draws inside it, so that border lands just outside
+// the target: off screen at the work area's edges, and on one shared line
+// between two tiled windows instead of two.
 fn get_frame_and_insets(hwnd: HWND) -> Option<(Rect, Insets)> {
     unsafe {
         let mut raw = RECT::default();
@@ -149,20 +153,35 @@ fn get_frame_and_insets(hwnd: HWND) -> Option<(Rect, Insets)> {
         )
         .ok()?;
 
-        let insets = Insets {
-            left: raw.left - frame.left,
-            top: raw.top - frame.top,
-            right: raw.right - frame.right,
-            bottom: raw.bottom - frame.bottom,
-        };
         let visible = Rect::new(
             frame.left,
             frame.top,
             frame.right - frame.left,
             frame.bottom - frame.top,
-        );
+        )
+        .shrink(border_thickness(hwnd));
+        let insets = Insets {
+            left: raw.left - visible.x,
+            top: raw.top - visible.y,
+            right: raw.right - visible.right(),
+            bottom: raw.bottom - visible.bottom(),
+        };
         Some((visible, insets))
     }
+}
+
+// Windows 10 lacks this attribute; the frame is then used as it is.
+fn border_thickness(hwnd: HWND) -> i32 {
+    let mut thickness: u32 = 0;
+    let read = unsafe {
+        DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_VISIBLE_FRAME_BORDER_THICKNESS,
+            &mut thickness as *mut _ as *mut c_void,
+            std::mem::size_of::<u32>() as u32,
+        )
+    };
+    if read.is_ok() { thickness as i32 } else { 0 }
 }
 
 fn apply_frame(hwnd: HWND, target: Rect, insets: &Insets) -> bool {

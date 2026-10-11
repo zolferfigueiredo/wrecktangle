@@ -12,8 +12,10 @@ A Rectangle-style keyboard window manager for Windows, in Rust.
 ## Invariants
 
 - All window geometry uses the visible DWM frame
-  (`DWMWA_EXTENDED_FRAME_BOUNDS`), never `GetWindowRect`'s raw rect, which
-  includes the invisible resize border.
+  (`DWMWA_EXTENDED_FRAME_BOUNDS`) minus the border Windows 11 draws inside it
+  (`DWMWA_VISIBLE_FRAME_BORDER_THICKNESS`), so that border lands outside the
+  tile. Never `GetWindowRect`'s raw rect, which includes the invisible resize
+  border.
 - A `thread_local` `RefCell` must never be borrowed across a Win32 call that
   can re-enter a window procedure: `SetWindowPos`, `ShowWindow`,
   `SendMessage` to a control, `MessageBoxW`, `TrackPopupMenu`,
