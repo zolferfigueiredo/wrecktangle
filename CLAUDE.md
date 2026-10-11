@@ -17,15 +17,16 @@ A Rectangle-style keyboard window manager for Windows, in Rust.
 - A `thread_local` `RefCell` must never be borrowed across a Win32 call that
   can re-enter a window procedure: `SetWindowPos`, `ShowWindow`,
   `SendMessage` to a control, `MessageBoxW`, `TrackPopupMenu`,
-  `DestroyWindow`, `RegisterHotKey`/`UnregisterHotKey`. Copy the data out,
-  drop the borrow, then make the call.
+  `DestroyWindow`, `RegisterHotKey`/`UnregisterHotKey`, and the Task
+  Scheduler COM calls in `src/startup.rs` (out-of-process calls from an STA
+  pump messages). Copy the data out, drop the borrow, then make the call.
 - No em or en dashes anywhere in `src/*.rs` (enforced by the pre-commit
   hook).
 - The takeover keyboard hook (`src/takeover.rs`) runs on the UI thread, so it
   must stay fast and must not touch `app.rs`'s `STATE`: it keeps its own
   `thread_local` state and only posts a message to the main window.
 - Pure modules (`config`, `lang`, `layout`, `owners`, `shortcut`,
-  `takeover`, `theme`, `ui`, `update`) are declared unconditionally in
+  `startup`, `takeover`, `theme`, `ui`, `update`) are declared unconditionally in
   `main.rs`, with Win32 code behind `#[cfg(windows)]` inside them, because CI
   runs `cargo test` on Linux without the `windows` crate.
 - The Settings window keeps its layout and painting in `ui::view` (pure,
@@ -67,3 +68,9 @@ build differs in places (some Win32 structs are packed, so their fields
 can't be borrowed); CI runs Clippy for it. The installer is
 `installer/wrecktangle.iss`; its Run value name and `AppMutex` must match
 `src/startup.rs` and `src/main.rs`.
+
+Launch at startup is a per-user Task Scheduler logon task, because Explorer
+starts Run-key apps late and one at a time. The installer's checkbox still
+writes the Run value, and the app moves it to the task on launch
+(`migrate_run_value`). The task's name (`task_name` in `src/startup.rs`) must
+match the installer's `[UninstallRun]` entry, which deletes it.
