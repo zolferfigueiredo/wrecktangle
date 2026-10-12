@@ -68,8 +68,16 @@ running build's architecture (`installer_name` and `ARCH` in
 `src/update.rs`), so keep those names and the workflow in sync. The 32-bit
 build differs in places (some Win32 structs are packed, so their fields
 can't be borrowed); CI runs Clippy for it. The installer is
-`installer/wrecktangle.iss`; its Run value name and `AppMutex` must match
-`src/startup.rs` and `src/main.rs`.
+`installer/wrecktangle.iss`; its Run value name must match `src/startup.rs`.
+It has no `AppMutex`: its `[Code]` quits a running copy itself (`WM_CLOSE` to
+`WINDOW_CLASS_NAME` from `src/app.rs`, then waits on the mutex from
+`src/main.rs`), so those names must match too.
+
+Installed copies update themselves (`update::install`): the app downloads the
+release's installer, checks it against the release's `SHA256SUMS`, and runs
+it with `/VERYSILENT`. The installer closes the app and starts the new version
+with `--updated`. A portable or dev copy (not in the installer's
+`InstallLocation`) only opens the download in the browser.
 
 Launch at startup is a per-user Task Scheduler logon task, because Explorer
 starts Run-key apps late and one at a time. The installer's checkbox still

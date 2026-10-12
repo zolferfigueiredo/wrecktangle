@@ -131,6 +131,7 @@ pub struct Config {
     pub sizes: Vec<String>,
     pub shortcuts: Shortcuts,
     pub check_updates: bool,
+    pub install_updates: bool,
     pub last_update_check: u64,
     pub language: String,
     pub wrecktangle_colors: bool,
@@ -157,6 +158,8 @@ struct ConfigFile {
     shortcuts: Option<ShortcutsFile>,
     #[serde(default)]
     check_updates: Option<bool>,
+    #[serde(default)]
+    install_updates: Option<bool>,
     #[serde(default)]
     last_update_check: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -238,6 +241,7 @@ fn resolve(file: ConfigFile) -> Option<Config> {
         sizes,
         shortcuts,
         check_updates: file.check_updates.unwrap_or(true),
+        install_updates: file.install_updates.unwrap_or(true),
         last_update_check: file.last_update_check.unwrap_or(0),
         language: file
             .language
@@ -285,6 +289,7 @@ pub fn to_json_string(config: &Config) -> String {
             previous_display: Some(format_opt(&config.shortcuts.previous_display)),
         }),
         check_updates: Some(config.check_updates),
+        install_updates: Some(config.install_updates),
         last_update_check: Some(config.last_update_check),
         language: Some(config.language.clone()).filter(|code| !code.is_empty()),
         wrecktangle_colors: Some(config.wrecktangle_colors),
@@ -528,6 +533,7 @@ mod tests {
     fn update_fields_default_to_checking_with_no_previous_check() {
         let config = Config::defaults();
         assert!(config.check_updates);
+        assert!(config.install_updates);
         assert_eq!(config.last_update_check, 0);
     }
 
@@ -536,16 +542,19 @@ mod tests {
         let (config, source) = load_from_str(r#"{"sizes": ["1/2"], "shortcuts": {"left": ""}}"#);
         assert_eq!(source, Source::Loaded);
         assert!(config.check_updates);
+        assert!(config.install_updates);
         assert_eq!(config.last_update_check, 0);
         assert_eq!(config.shortcuts.left, None);
     }
 
     #[test]
     fn update_fields_are_read_and_round_trip() {
-        let (config, source) =
-            load_from_str(r#"{"check_updates": false, "last_update_check": 1760000000}"#);
+        let (config, source) = load_from_str(
+            r#"{"check_updates": false, "install_updates": false, "last_update_check": 1760000000}"#,
+        );
         assert_eq!(source, Source::Loaded);
         assert!(!config.check_updates);
+        assert!(!config.install_updates);
         assert_eq!(config.last_update_check, 1_760_000_000);
 
         let (reloaded, source) = load_from_str(&to_json_string(&config));

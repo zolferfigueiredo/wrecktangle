@@ -36,7 +36,7 @@ ArchitecturesAllowed=x86compatible
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 #endif
-AppMutex=Local\Wrecktangle.SingleInstance
+; No AppMutex: [Code] closes a running copy itself instead of asking the user to.
 CloseApplications=yes
 RestartApplications=no
 OutputBaseFilename=Wrecktangle-{#AppVersion}-{#Arch}-setup
@@ -77,7 +77,8 @@ japanese.LaunchAtStartup=起動時に開く
 korean.LaunchAtStartup=시작할 때 실행
 
 [Tasks]
-Name: "startup"; Description: "{cm:LaunchAtStartup}"; Flags: unchecked
+; Only on a first install, so an update keeps what the user chose in Settings.
+Name: "startup"; Description: "{cm:LaunchAtStartup}"; Flags: unchecked; Check: not IsUpgrade
 
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "wrecktangle.exe"; Flags: ignoreversion
@@ -93,7 +94,70 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\wrecktangle.exe"; Description: "{cm:LaunchProgram,Wrecktangle}"; Flags: nowait postinstall skipifsilent
+; A silent install is an in-app update: open the new version again, which then says it was updated.
+Filename: "{app}\wrecktangle.exe"; Parameters: "--updated"; Flags: nowait; Check: RelaunchAfterSilentUpdate
 
 [UninstallRun]
 ; The app moves the Run value above to a logon task named by task_name in src/startup.rs.
 Filename: "{sys}\schtasks.exe"; Parameters: "/Delete /TN ""Wrecktangle ({username})"" /F"; Flags: runhidden; RunOnceId: "DeleteStartupTask"
+
+[Code]
+const
+  WM_CLOSE = $0010;
+  // The single-instance mutex in src/main.rs and the main window class in src/app.rs.
+  AppMutexName = 'Local\Wrecktangle.SingleInstance';
+  AppWindowClass = 'WrecktangleMainWindow';
+  UninstallKey = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{5FC369EA-4EC3-4B23-9F2C-DAA462C9BD79}_is1';
+
+var
+  AppWasRunning: Boolean;
+
+// Quits a running Wrecktangle the way its tray Quit does (WM_CLOSE to the main window),
+// so nobody has to find it in the notification area first.
+function CloseRunningApp(): Boolean;
+var
+  Wnd: HWND;
+  Waited: Integer;
+begin
+  if not CheckForMutexes(AppMutexName) then
+  begin
+    Result := True;
+    Exit;
+  end;
+  AppWasRunning := True;
+  Wnd := FindWindowByClassName(AppWindowClass);
+  if Wnd <> 0 then
+    PostMessage(Wnd, WM_CLOSE, 0, 0);
+  Waited := 0;
+  while CheckForMutexes(AppMutexName) and (Waited < 5000) do
+  begin
+    Sleep(100);
+    Waited := Waited + 100;
+  end;
+  Result := not CheckForMutexes(AppMutexName);
+end;
+
+function IsUpgrade(): Boolean;
+begin
+  Result := RegKeyExists(HKCU, UninstallKey);
+end;
+
+// Runs when installing starts, so cancelling the wizard leaves the app running.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  if CloseRunningApp() then
+    Result := ''
+  else
+    Result := FmtMessage(SetupMessage(msgSetupAppRunningError), ['Wrecktangle']);
+end;
+
+function RelaunchAfterSilentUpdate(): Boolean;
+begin
+  Result := WizardSilent() and AppWasRunning;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usUninstall then
+    CloseRunningApp();
+end;

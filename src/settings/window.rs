@@ -473,8 +473,9 @@ impl Window {
             Target::Size(index) => Command::ToggleSize(index),
             Target::Startup => Command::SetStartup(!self.model.startup),
             Target::AutoUpdate => Command::SetAutoUpdate(!self.model.auto_update),
+            Target::AutoInstall => Command::SetAutoInstall(!self.model.auto_install),
             Target::CheckNow => Command::CheckNow,
-            Target::Download => Command::Download,
+            Target::Update => Command::Update,
             Target::Link(link) => Command::OpenUrl(link.url()),
         }
     }

@@ -128,6 +128,17 @@ pub fn init() -> windows::core::Result<HWND> {
         if !failed.is_empty() {
             notices.push(failed_message(&failed));
         }
+        // The installer of the last update can still be running when it
+        // starts this version, so its file goes on the next start at the latest.
+        update::clean_downloads();
+        // The installer starts the new version with --updated after an
+        // update it ran silently.
+        if std::env::args().any(|arg| arg == "--updated") {
+            notices.push(lang::format(
+                "notify.updated",
+                &[("version", update::current_version())],
+            ));
+        }
         // Started by the logon task, the app can run before Explorer has made
         // the taskbar. TaskbarCreated then adds the icon and shows these.
         if tray::add(hwnd).is_ok() {
@@ -243,10 +254,15 @@ fn notify_update_available(hwnd: HWND) {
         None => true,
     });
     if !already_told {
+        let key = if update::can_install() {
+            "notify.update_install"
+        } else {
+            "notify.update_available"
+        };
         tray::notify_update(
             hwnd,
             "Wrecktangle",
-            &lang::format("notify.update_available", &[("version", &version)]),
+            &lang::format(key, &[("version", &version)]),
         );
     }
 }
@@ -429,7 +445,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
                 update_config(|config| config.last_update_check = checked_at);
             }
             crate::settings::on_update_state_changed();
-            if wparam.0 != 0 {
+            if update::should_install_now() {
+                update::install();
+            } else if wparam.0 != 0 {
                 notify_update_available(hwnd);
             }
             LRESULT(0)
