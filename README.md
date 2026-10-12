@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.4.3-blue" alt="Latest release"></a>
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.4.4-blue" alt="Latest release"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024%20edition-orange" alt="Rust 2024 edition"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x86%20%7C%20x64)-blue" alt="Windows 10 or 11, 32-bit or 64-bit">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT license"></a>
@@ -31,7 +31,7 @@
 
 ## Install
 
-1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.3/Wrecktangle-0.4.3-x64-setup.exe)
+1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.4/Wrecktangle-0.4.4-x64-setup.exe)
    and run it. It installs for your user only, into
    `%LOCALAPPDATA%\Programs\Wrecktangle`, and never asks for admin rights. It
    isn't code signed yet, so if Windows SmartScreen says it protected your PC,
@@ -41,14 +41,14 @@
 3. Press Ctrl+Alt+Left. The focused window fills the left half of its screen.
    Press it again for two thirds, and again for three quarters.
 
-Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.3/Wrecktangle-0.4.3-x64.zip):
+Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.4/Wrecktangle-0.4.4-x64.zip):
 put `wrecktangle.exe` somewhere permanent, run it from there, and turn on
 **Launch at startup** from the tray menu.
 
 You need Windows 10 or 11. The links above are for 64-bit Windows; on 32-bit
 Windows, take the
-[32-bit installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.3/Wrecktangle-0.4.3-x86-setup.exe)
-or [32-bit zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.3/Wrecktangle-0.4.3-x86.zip)
+[32-bit installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.4/Wrecktangle-0.4.4-x86-setup.exe)
+or [32-bit zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.4/Wrecktangle-0.4.4-x86.zip)
 instead. Uninstall it from Apps in Windows Settings.
 
 **Coming from Wectangle?** Wrecktangle used to be called Wectangle. On its
