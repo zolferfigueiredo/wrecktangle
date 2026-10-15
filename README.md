@@ -192,7 +192,7 @@ cargo build --release
 target\release\wrecktangle.exe
 ```
 
-Double-click `run.bat` to build whatever changed and (re)start Wrecktangle, or
+Double-click `run.bat` to make a debug build of whatever changed and (re)start Wrecktangle, or
 `build.bat` to only build it. Both close a running Wrecktangle first, since it
 locks the exe. `installer.bat` builds the installer,
 `dist\Wrecktangle-<version>-x64-setup.exe`; it needs Inno Setup 6

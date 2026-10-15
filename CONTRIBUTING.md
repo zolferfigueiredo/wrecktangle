@@ -27,8 +27,8 @@ git config core.hooksPath .githooks
 The hook refuses commits on `main`, runs `cargo fmt --check` and rejects em
 and en dashes in `src/*.rs`.
 
-`run.bat` builds whatever changed and restarts Wrecktangle; `build.bat` only
-builds. Only one Wrecktangle runs at a time (starting a second one just opens
+`run.bat` makes a debug build of whatever changed and restarts Wrecktangle;
+`build.bat` only builds, as the optimized release. Only one Wrecktangle runs at a time (starting a second one just opens
 Settings in the first), so both scripts close a running copy first.
 
 Two environment variables help while testing:
