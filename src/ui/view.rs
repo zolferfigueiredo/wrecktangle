@@ -69,6 +69,7 @@ pub enum Link {
     Website,
     Author,
     Rectangle,
+    Coffee,
 }
 
 impl Link {
@@ -76,7 +77,8 @@ impl Link {
         match self {
             Link::Website => "https://wrecktangle.zolfer.com",
             Link::Author => "https://zolfer.com",
-            Link::Rectangle => "https://rectangleapp.com",
+            Link::Rectangle => "https://github.com/rxhanson/Rectangle",
+            Link::Coffee => "https://buymeacoffee.com/zolfer",
         }
     }
 }
@@ -959,9 +961,10 @@ fn size_checks<S: Shaper>(b: &mut Builder<S>, model: &Model, x: f32, y: f32) -> 
 enum Block<T> {
     Logo,
     Space(f32),
-    Centered(Shaped<T>, Ink),
+    Centered(Shaped<T>),
     Buttons(Vec<(ButtonSize<T>, Target, bool, bool)>),
     Links(Option<Shaped<T>>, Shaped<T>, Link),
+    Line,
 }
 
 const LOGO_SIZE: f32 = 128.0;
@@ -969,17 +972,19 @@ const ABOUT_SPACING: f32 = 6.0;
 
 fn about_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32, viewport_h: f32) -> f32 {
     let w = (width - 2.0 * PAGE_PADDING).max(0.0);
+    let label = |b: &mut Builder<S>, text: &str| b.shape(text, LABEL, f32::MAX, Wrap::Line);
     let mut blocks = vec![
         Block::Logo,
         Block::Space(8.0),
-        Block::Centered(
-            b.shape("Wrecktangle", APP_NAME, f32::MAX, Wrap::Line),
-            Ink::Foreground,
+        Block::Centered(b.shape("Wrecktangle", APP_NAME, f32::MAX, Wrap::Line)),
+        Block::Space(4.0),
+        Block::Links(
+            Some(b.shape(&lang::t("about.made_by"), SMALL, f32::MAX, Wrap::Line)),
+            b.shape("Zolfer Figueiredo", SMALL, f32::MAX, Wrap::Line),
+            Link::Author,
         ),
-        Block::Centered(
-            b.shape(&model.about_version, BODY, f32::MAX, Wrap::Line),
-            Ink::Secondary,
-        ),
+        Block::Space(4.0),
+        Block::Centered(b.shape(&model.about_version, BODY, f32::MAX, Wrap::Line)),
         Block::Space(16.0),
     ];
     let mut buttons = vec![(
@@ -998,33 +1003,44 @@ fn about_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32, viewport
     }
     blocks.push(Block::Buttons(buttons));
     if !model.update_detail.is_empty() {
-        blocks.push(Block::Centered(
-            b.shape(&model.update_detail, BODY, w, Wrap::WordsCentered),
-            Ink::Secondary,
-        ));
+        blocks.push(Block::Centered(b.shape(
+            &model.update_detail,
+            BODY,
+            w,
+            Wrap::WordsCentered,
+        )));
     }
-    blocks.push(Block::Space(16.0));
-    blocks.push(Block::Links(
-        None,
-        b.shape(&lang::t("about.website"), LABEL, f32::MAX, Wrap::Line),
-        Link::Website,
-    ));
-    blocks.push(Block::Space(6.0));
-    for (key, name, link) in [
-        ("about.made_by", "zolfer.com", Link::Author),
-        ("about.inspired_by", "Rectangle", Link::Rectangle),
-    ] {
-        let lead = b.shape(&lang::t(key), LABEL, f32::MAX, Wrap::Line);
-        let text = b.shape(name, LABEL, f32::MAX, Wrap::Line);
-        blocks.push(Block::Links(Some(lead), text, link));
-    }
+    blocks.extend([
+        Block::Space(16.0),
+        Block::Line,
+        Block::Space(16.0),
+        Block::Links(None, label(b, &lang::t("about.website")), Link::Website),
+        Block::Centered(label(b, &lang::t("about.liked"))),
+        Block::Space(6.0),
+        Block::Buttons(vec![(
+            b.button("about.coffee"),
+            Target::Link(Link::Coffee),
+            false,
+            true,
+        )]),
+        Block::Space(16.0),
+        Block::Line,
+        Block::Space(16.0),
+        Block::Links(
+            Some(label(b, &lang::t("about.inspired_by"))),
+            label(b, "Rectangle"),
+            Link::Rectangle,
+        ),
+    ]);
 
+    let hair = b.hairline();
     let block_h = |block: &Block<S::Text>| match block {
         Block::Logo => LOGO_SIZE,
         Block::Space(h) => *h,
-        Block::Centered(text, _) => text.h,
+        Block::Centered(text) => text.h,
         Block::Buttons(buttons) => buttons.iter().map(|b| b.0.h).fold(0.0, f32::max),
         Block::Links(lead, text, _) => lead.as_ref().map_or(text.h, |l| l.h.max(text.h)),
+        Block::Line => hair,
     };
     let total = 2.0 * PAGE_PADDING
         + blocks.iter().map(block_h).sum::<f32>()
@@ -1044,13 +1060,13 @@ fn about_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32, viewport
                 ))));
             }
             Block::Space(_) => {}
-            Block::Centered(text, ink) => {
+            Block::Centered(text) => {
                 let x = if text.w >= w {
                     PAGE_PADDING
                 } else {
                     (width - text.w) / 2.0
                 };
-                b.text(&text, x, y, ink);
+                b.text(&text, x, y, Ink::Foreground);
             }
             Block::Buttons(buttons) => {
                 let total_w =
@@ -1065,7 +1081,7 @@ fn about_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32, viewport
                 let lead_w = lead.as_ref().map_or(0.0, |l| l.w + 4.0);
                 let mut x = (width - lead_w - text.w) / 2.0;
                 if let Some(lead) = &lead {
-                    b.text(lead, x, y, Ink::Secondary);
+                    b.text(lead, x, y, Ink::Foreground);
                     x += lead_w;
                 }
                 let rect = Rect::new(x, y, text.w, text.h);
@@ -1075,6 +1091,9 @@ fn about_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32, viewport
                     text: text.text,
                 });
                 b.hit(Target::Link(link), rect, true);
+            }
+            Block::Line => {
+                b.divider(PAGE_PADDING, y, w);
             }
         }
         y = b.snap.round(y + h + ABOUT_SPACING);
@@ -1786,11 +1805,48 @@ mod tests {
     fn about_page_centers_and_links_its_credits() {
         let mut m = model();
         m.page = Page::About;
+        m.update_available = true;
         let layout = lay(&m);
         assert_eq!(layout.content_height, layout.viewport.h);
-        for link in [Link::Website, Link::Author, Link::Rectangle] {
-            assert!(layout.has_target(Target::Link(link)));
+        assert_eq!(
+            layout.focus_order(),
+            [
+                Target::Tab(Page::Shortcuts),
+                Target::Tab(Page::General),
+                Target::Tab(Page::About),
+                Target::Link(Link::Author),
+                Target::CheckNow,
+                Target::Update,
+                Target::Link(Link::Website),
+                Target::Link(Link::Coffee),
+                Target::Link(Link::Rectangle),
+            ]
+            .map(|t| (t, true))
+        );
+        assert!(layout.content.iter().any(|item| matches!(
+            item,
+            Item::Button {
+                target: Target::Link(Link::Coffee),
+                primary: false,
+                ..
+            }
+        )));
+        let lines: Vec<&Rect> = layout
+            .content
+            .iter()
+            .filter_map(|item| match item {
+                Item::Divider(r) => Some(r),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lines.len(), 2);
+        for line in lines {
+            assert_eq!((line.x, line.w), (PAGE_PADDING, 640.0 - 2.0 * PAGE_PADDING));
         }
+        assert!(layout.content.iter().all(|item| !matches!(
+            item,
+            Item::Text { ink, .. } if *ink != Ink::Foreground
+        )));
         assert!(!layout.content.iter().any(|item| matches!(
             item,
             Item::Text { text, .. } | Item::Link { text, .. } if text.contains("Slint")
