@@ -143,6 +143,29 @@ pub fn apply_dark_menu(dark: bool) {
     }
 }
 
+/// The Windows accent color's shades for accent fills (Settings >
+/// Personalization > Colors), or None when Windows can't say, which leaves
+/// Fluent's blue.
+#[cfg(windows)]
+pub fn system_accent() -> Option<crate::ui::palette::Accent> {
+    use crate::ui::palette::{Accent, Rgba};
+    use windows::UI::ViewManagement::{UIColorType, UISettings};
+    let settings = UISettings::new().ok()?;
+    let shade = |kind| {
+        let c = settings.GetColorValue(kind).ok()?;
+        Some(Rgba {
+            r: c.R,
+            g: c.G,
+            b: c.B,
+            a: 255,
+        })
+    };
+    Some(Accent {
+        on_dark: shade(UIColorType::AccentLight2)?,
+        on_light: shade(UIColorType::AccentDark1)?,
+    })
+}
+
 /// True if a WM_SETTINGCHANGE message's lParam names "ImmersiveColorSet",
 /// the area Windows broadcasts when the light/dark theme or accent color
 /// changes.
