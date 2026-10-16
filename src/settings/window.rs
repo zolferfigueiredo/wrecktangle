@@ -41,7 +41,7 @@ use super::Command;
 use super::gfx::{Gfx, Text};
 use crate::lang;
 use crate::theme::{self, Mode};
-use crate::ui::palette::{Rgba, palette};
+use crate::ui::palette::{Accent, Rgba, palette};
 use crate::ui::view::{self, Interaction, Layout, Model, PAGES, Page, Target};
 use crate::ui::{Scroll, Snap, focus_step};
 
@@ -71,6 +71,7 @@ struct Window {
     ui: Interaction,
     offsets: [f32; PAGES.len()],
     mode: Mode,
+    accent: Option<Accent>,
     mouse: Option<(f32, f32)>,
     tracking: bool,
     drag: Option<Drag>,
@@ -205,7 +206,8 @@ pub fn create() -> Result<()> {
 
         let (x, y, w, h, monitor_dpi) = placement();
         let mode = theme::current_mode();
-        BACKGROUND.with(|bg| bg.set(colorref(palette(mode, false).background)));
+        let accent = theme::system_accent();
+        BACKGROUND.with(|bg| bg.set(colorref(palette(mode, false, None).background)));
         let gfx = Gfx::new(monitor_dpi)?;
         let title = wide(&lang::t("window.title"));
         let hwnd = CreateWindowExW(
@@ -230,6 +232,7 @@ pub fn create() -> Result<()> {
             ui: Interaction::default(),
             offsets: [0.0; PAGES.len()],
             mode,
+            accent,
             mouse: None,
             tracking: false,
             drag: None,
@@ -490,18 +493,22 @@ impl Window {
             layout,
             &self.ui,
             &self.scroll(),
-            &palette(self.mode, self.model.wrecktangle_colors),
+            &palette(self.mode, self.model.wrecktangle_colors, self.accent),
             self.snap(),
         );
         matches!(self.gfx.draw(self.hwnd, &ops), Err(e) if e.code() == D2DERR_RECREATE_TARGET)
     }
 }
 
+// Also when the accent color changes, which Windows announces the same way.
 fn retheme(hwnd: HWND) {
     let mode = theme::current_mode();
-    BACKGROUND.with(|bg| bg.set(colorref(palette(mode, false).background)));
+    // Read before borrowing the window state, since it calls into Windows.
+    let accent = theme::system_accent();
+    BACKGROUND.with(|bg| bg.set(colorref(palette(mode, false, None).background)));
     with(|w| {
         w.mode = mode;
+        w.accent = accent;
         w.invalidate();
     });
     theme::apply_title_bar(hwnd, mode == Mode::Dark);

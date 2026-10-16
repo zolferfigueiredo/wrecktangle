@@ -1,11 +1,15 @@
-# Makes a Wrecktangle release in two steps. release.bat runs this.
+# Makes a Wrecktangle release. release.bat runs this.
 #
-#   release.bat 0.4.1   Opens a pull request that bumps the version to 0.4.1
-#                       (Cargo.toml, Cargo.lock, the README badge and links).
-#   release.bat         Publishes the version on main: checks CI passed, tags
-#                       v<version> on main and pushes the tag, which starts the
-#                       Release workflow. If that version is already released,
-#                       asks for the next one and opens its bump pull request.
+#   release.bat 0.4.1   Opens a pull request into dev that bumps the version to
+#                       0.4.1 (Cargo.toml, Cargo.lock, the README badge and
+#                       links). Merging dev into main then publishes it: the
+#                       Release workflow releases any version on main that
+#                       has no release yet.
+#   release.bat         Publishes the version on main by hand: checks CI
+#                       passed, tags v<version> on main and pushes the tag,
+#                       which starts the Release workflow. If that version is
+#                       already released, asks for the next one and opens its
+#                       bump pull request.
 #
 # -DryRun shows what would happen without changing files, git or GitHub.
 # Needs git, gh (signed in) and cargo. Keep this file ASCII: Windows
@@ -42,13 +46,16 @@ foreach ($tool in "git", "gh", "cargo") {
 & gh auth status *> $null
 if ($LASTEXITCODE -ne 0) { Fail "Sign in to the GitHub CLI first: gh auth login" }
 
-Step "Fetching main and tags"
+Step "Fetching main, dev and tags"
 Exec "git fetch" { git fetch --quiet origin --tags }
 $repo = Exec "gh repo view" { gh repo view --json nameWithOwner --jq .nameWithOwner }
 $mainSha = Exec "git rev-parse" { git rev-parse origin/main }
 $mainToml = (Exec "git show" { git show origin/main:Cargo.toml }) -join "`n"
 if ($mainToml -notmatch '(?m)^version = "([^"]+)"') { Fail "Couldn't read the version from main's Cargo.toml." }
 $mainVersion = $Matches[1]
+$devToml = (Exec "git show" { git show origin/dev:Cargo.toml }) -join "`n"
+if ($devToml -notmatch '(?m)^version = "([^"]+)"') { Fail "Couldn't read the version from dev's Cargo.toml." }
+$devVersion = $Matches[1]
 
 function Test-Tag([string]$Tag) {
     & git rev-parse --quiet --verify "refs/tags/$Tag" *> $null
@@ -72,14 +79,14 @@ function Get-ReadmeProblems([string]$Readme, [string]$Want) {
 }
 
 function Set-ReadmeVersion([string]$Readme, [string]$Next) {
-    $Readme = $Readme.Replace("img.shields.io/badge/release-v$mainVersion-blue", "img.shields.io/badge/release-v$Next-blue")
-    return $Readme.Replace("releases/download/v$mainVersion/Wrecktangle-$mainVersion-x", "releases/download/v$Next/Wrecktangle-$Next-x")
+    $Readme = $Readme.Replace("img.shields.io/badge/release-v$devVersion-blue", "img.shields.io/badge/release-v$Next-blue")
+    return $Readme.Replace("releases/download/v$devVersion/Wrecktangle-$devVersion-x", "releases/download/v$Next/Wrecktangle-$Next-x")
 }
 
 function New-Bump([string]$Next) {
     if ($Next -notmatch '^\d+\.\d+\.\d+$') { Fail "'$Next' isn't a version like 0.4.1." }
-    if ([version]$Next -le [version]$mainVersion) {
-        Fail "$Next isn't newer than $mainVersion, the version on main."
+    if ([version]$Next -le [version]$devVersion) {
+        Fail "$Next isn't newer than $devVersion, the version on dev."
     }
     if (Test-Tag "v$Next") { Fail "v$Next is already released." }
     $branch = "chore/bump-$Next"
@@ -87,9 +94,9 @@ function New-Bump([string]$Next) {
     if ($LASTEXITCODE -eq 0) { Fail "The branch $branch already exists on GitHub; its pull request may be open already." }
 
     Write-Host ""
-    Write-Host "Bumping $mainVersion -> $Next on a new branch, $branch."
+    Write-Host "Bumping $devVersion -> $Next on a new branch from dev, $branch."
     if ($DryRun) {
-        $readme = Set-ReadmeVersion ((Exec "git show" { git show origin/main:README.md }) -join "`n") $Next
+        $readme = Set-ReadmeVersion ((Exec "git show" { git show origin/dev:README.md }) -join "`n") $Next
         $problems = Get-ReadmeProblems $readme $Next
         if ($problems) { Fail ("README.md would need a hand edit: " + ($problems -join "; ") + ".") }
         $links = [regex]::Matches($readme, 'releases/download/v[^/]+/Wrecktangle-[^-]+-x(64|86)').Count
@@ -102,8 +109,8 @@ function New-Bump([string]$Next) {
     }
     $start = (& git branch --show-current)
 
-    Step "Creating $branch from main"
-    Exec "git switch" { git switch --quiet -c $branch origin/main }
+    Step "Creating $branch from dev"
+    Exec "git switch" { git switch --quiet -c $branch origin/dev }
     $utf8 = New-Object System.Text.UTF8Encoding $false
 
     $tomlPath = Join-Path (Get-Location) "Cargo.toml"
@@ -126,13 +133,13 @@ function New-Bump([string]$Next) {
     Exec "git push" { git push --quiet -u origin $branch }
 
     Step "Opening the pull request"
-    $body = "Bumps the version from $mainVersion to $Next in Cargo.toml, Cargo.lock, the README release badge and download links.`n`nAfter merging, run release.bat to tag main and publish $Next."
-    $url = Exec "gh pr create" { gh pr create --base main --head $branch --title "Bump version to $Next" --body $body }
+    $body = "Bumps the version from $devVersion to $Next in Cargo.toml, Cargo.lock, the README release badge and download links.`n`nAfter merging, merge dev into main: the Release workflow publishes $Next."
+    $url = Exec "gh pr create" { gh pr create --base dev --head $branch --title "Bump version to $Next" --body $body }
     if ($start) { & git switch --quiet $start }
 
     Write-Host ""
     Write-Host "Pull request: $url" -ForegroundColor Green
-    Write-Host "Merge it, then run release.bat again to publish $Next."
+    Write-Host "Merge it, then merge dev into main to publish $Next."
 }
 
 function Publish {

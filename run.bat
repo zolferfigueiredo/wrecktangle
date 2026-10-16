@@ -9,9 +9,10 @@ taskkill /im "wrecktangle*" >nul 2>nul
 ping -n 2 127.0.0.1 >nul
 taskkill /f /im "wrecktangle*" >nul 2>nul
 
-rem Cargo only recompiles what changed, so this takes a second when nothing did.
-cargo build --release || goto :failed
-start "" "target\release\wrecktangle.exe"
+rem A debug build, which recompiles only what changed in seconds; build.bat and the installer make the
+rem optimized release. Cargo takes a second when nothing changed.
+cargo build || goto :failed
+start "" "target\debug\wrecktangle.exe"
 exit /b 0
 
 :failed
