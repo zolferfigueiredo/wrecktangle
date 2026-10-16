@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.4.4-blue" alt="Latest release"></a>
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.5.0-blue" alt="Latest release"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024%20edition-orange" alt="Rust 2024 edition"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x86%20%7C%20x64)-blue" alt="Windows 10 or 11, 32-bit or 64-bit">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT license"></a>
@@ -31,7 +31,7 @@
 
 ## Install
 
-1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.4/Wrecktangle-0.4.4-x64-setup.exe)
+1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.5.0/Wrecktangle-0.5.0-x64-setup.exe)
    and run it. It installs for your user only, into
    `%LOCALAPPDATA%\Programs\Wrecktangle`, and never asks for admin rights. It
    isn't code signed yet, so if Windows SmartScreen says it protected your PC,
@@ -41,14 +41,14 @@
 3. Press Ctrl+Alt+Left. The focused window fills the left half of its screen.
    Press it again for two thirds, and again for three quarters.
 
-Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.4/Wrecktangle-0.4.4-x64.zip):
+Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.5.0/Wrecktangle-0.5.0-x64.zip):
 put `wrecktangle.exe` somewhere permanent, run it from there, and turn on
 **Launch at startup** from the tray menu.
 
 You need Windows 10 or 11. The links above are for 64-bit Windows; on 32-bit
 Windows, take the
-[32-bit installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.4/Wrecktangle-0.4.4-x86-setup.exe)
-or [32-bit zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.4.4/Wrecktangle-0.4.4-x86.zip)
+[32-bit installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.5.0/Wrecktangle-0.5.0-x86-setup.exe)
+or [32-bit zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.5.0/Wrecktangle-0.5.0-x86.zip)
 instead. Uninstall it from Apps in Windows Settings.
 
 **Coming from Wectangle?** Wrecktangle used to be called Wectangle. On its
@@ -192,7 +192,7 @@ cargo build --release
 target\release\wrecktangle.exe
 ```
 
-Double-click `run.bat` to build whatever changed and (re)start Wrecktangle, or
+Double-click `run.bat` to make a debug build of whatever changed and (re)start Wrecktangle, or
 `build.bat` to only build it. Both close a running Wrecktangle first, since it
 locks the exe. `installer.bat` builds the installer,
 `dist\Wrecktangle-<version>-x64-setup.exe`; it needs Inno Setup 6
@@ -209,20 +209,21 @@ cloning:
 git config core.hooksPath .githooks
 ```
 
-**Release.** `release.bat` does it in two steps; it needs git, `gh` signed in
-and cargo, and `-DryRun` shows what it would do:
+**Release.** It takes two steps; `release.bat` needs git, `gh` signed in and
+cargo, and `-DryRun` shows what it would do:
 
-1. `release.bat 0.4.1` opens a pull request that bumps the version to 0.4.1
-   in `Cargo.toml`, `Cargo.lock`, and this README's release badge and
+1. `release.bat 0.4.1` opens a pull request into `dev` that bumps the version
+   to 0.4.1 in `Cargo.toml`, `Cargo.lock`, and this README's release badge and
    download links (CI fails while they differ).
-2. Once that is merged, `release.bat` checks that CI passed on `main`, asks
-   you to confirm, tags `main` with `v0.4.1`, pushes the tag and shows the
-   Release workflow's progress.
+2. Once that is merged, merge `dev` into `main`. The Release workflow sees a
+   version on `main` with no release yet, publishes it and tags the merged
+   commit `v0.4.1`.
 
-Double-clicking `release.bat` does whichever step is next: it publishes the
-version on `main` if it isn't released yet, and otherwise asks for the next
-version. The Release workflow checks the tag against `Cargo.toml`, refuses a tag that
-isn't on `main`, runs the tests and builds `wrecktangle.exe` for 64-bit and
+Double-clicking `release.bat` publishes the version on `main` by hand if it
+isn't released yet (it checks that CI passed, asks you to confirm and pushes
+the tag), and otherwise asks for the next version. On a tag, the Release
+workflow checks it against `Cargo.toml` and refuses one that isn't on `main`.
+Either way it runs the tests and builds `wrecktangle.exe` for 64-bit and
 32-bit Windows on a Windows runner with MSVC, packs each into a zip and an
 Inno Setup installer, and publishes a GitHub release named
 "Wrecktangle <version>" with:
