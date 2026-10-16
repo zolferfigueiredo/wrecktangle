@@ -165,7 +165,6 @@ fn set_language(index: usize) {
 fn show_update_state() {
     let state = update::state();
     let version = lang::format("about.version", &[("version", update::current_version())]);
-    let status = update::status_line(&state);
     let detail = update::status_detail(&state);
     let available = matches!(state, update::State::Available { .. });
     let installable = update::can_install();
@@ -177,7 +176,6 @@ fn show_update_state() {
     );
     window::update(|m| {
         m.about_version = version;
-        m.update_status = status;
         m.update_detail = detail;
         m.update_available = available;
         m.update_installable = installable;
