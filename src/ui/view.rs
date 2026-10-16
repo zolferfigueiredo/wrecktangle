@@ -1876,7 +1876,7 @@ mod tests {
     fn focus_rings_need_keyboard_cues() {
         let m = model();
         let layout = lay(&m);
-        let palette = palette(Mode::Dark, false);
+        let palette = palette(Mode::Dark, false, None);
         let scroll = Scroll::default();
         let mut ui = Interaction {
             focus: Some(Target::Pill(0)),
@@ -1907,7 +1907,7 @@ mod tests {
             &layout,
             &Interaction::default(),
             &scroll,
-            &palette(Mode::Light, false),
+            &palette(Mode::Light, false, None),
             Snap::new(1.5),
         );
         assert!(matches!(ops[0], Op::Clear(_)));
