@@ -55,7 +55,6 @@ pub struct Model {
     pub startup: bool,
     pub auto_update: bool,
     pub auto_install: bool,
-    pub update_status: String,
     pub update_detail: String,
     pub update_available: bool,
     /// The update installs itself; otherwise its button opens the download.
@@ -708,7 +707,6 @@ enum Trailing {
     Nothing,
     Language,
     Switch(Target, bool),
-    UpdateButtons,
 }
 
 const COMBO_W: f32 = 190.0;
@@ -717,8 +715,8 @@ const COMBO_H: f32 = 32.0;
 fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32 {
     let x = PAGE_PADDING;
     let w = (width - 2.0 * PAGE_PADDING).max(0.0);
-    let mut y = 14.0;
-
+    // Checking for updates by hand, and the version, are on About.
+    let mut y = b.section_title("group.app", x, 14.0, w);
     y = b.card(x, y, w, |b, x, mut y, w| {
         y += setting_row(
             b,
@@ -731,7 +729,7 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
             Trailing::Language,
         );
         y = b.divider(x, y, w);
-        y + setting_row(
+        y += setting_row(
             b,
             model,
             x,
@@ -740,6 +738,28 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
             &lang::t("general.colors"),
             &lang::t("general.colors_desc"),
             Trailing::Switch(Target::Colors, model.wrecktangle_colors),
+        );
+        y = b.divider(x, y, w);
+        y += setting_row(
+            b,
+            model,
+            x,
+            y,
+            w,
+            &lang::t("general.auto_update"),
+            &lang::t("general.auto_update_desc"),
+            Trailing::Switch(Target::AutoUpdate, model.auto_update),
+        );
+        y = b.divider(x, y, w);
+        y + setting_row(
+            b,
+            model,
+            x,
+            y,
+            w,
+            &lang::t("general.auto_install"),
+            &lang::t("general.auto_install_desc"),
+            Trailing::Switch(Target::AutoInstall, model.auto_install),
         )
     });
 
@@ -772,42 +792,6 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
         )
     });
 
-    y = b.section_title("group.updates", x, y + 16.0, w);
-    y = b.card(x, y, w, |b, x, mut y, w| {
-        y += setting_row(
-            b,
-            model,
-            x,
-            y,
-            w,
-            &lang::t("general.auto_update"),
-            &lang::t("general.auto_update_desc"),
-            Trailing::Switch(Target::AutoUpdate, model.auto_update),
-        );
-        y = b.divider(x, y, w);
-        y += setting_row(
-            b,
-            model,
-            x,
-            y,
-            w,
-            &lang::t("general.auto_install"),
-            &lang::t("general.auto_install_desc"),
-            Trailing::Switch(Target::AutoInstall, model.auto_install),
-        );
-        y = b.divider(x, y, w);
-        y + setting_row(
-            b,
-            model,
-            x,
-            y,
-            w,
-            &model.update_status,
-            "",
-            Trailing::UpdateButtons,
-        )
-    });
-
     y + 20.0
 }
 
@@ -831,10 +815,6 @@ fn setting_row<S: Shaper>(
         }
         _ => None,
     };
-    let download = (matches!(trailing, Trailing::UpdateButtons) && model.update_available)
-        .then(|| b.button(update_button_key(model)));
-    let check_now =
-        matches!(trailing, Trailing::UpdateButtons).then(|| b.button("button.check_now"));
 
     let (trailing_w, trailing_h) = match trailing {
         Trailing::Nothing => (0.0, 0.0),
@@ -842,13 +822,6 @@ fn setting_row<S: Shaper>(
         Trailing::Switch(..) => {
             let label = switch_label.as_ref().map_or((0.0, 0.0), |l| (l.w, l.h));
             ((40.0 + 12.0 + label.0).ceil(), label.1.max(20.0))
-        }
-        Trailing::UpdateButtons => {
-            let check = check_now.as_ref().map_or((0.0, 0.0), |c| (c.w, c.h));
-            match &download {
-                Some(d) => (d.w + 8.0 + check.0, d.h.max(check.1)),
-                None => check,
-            }
         }
     };
 
@@ -907,16 +880,6 @@ fn setting_row<S: Shaper>(
             });
             b.hit(target, rect, true);
         }
-        Trailing::UpdateButtons => {
-            let mut bx = tx;
-            if let Some(download) = &download {
-                b.place_button(download, Target::Update, bx, ty, true, true);
-                bx += download.w + 8.0;
-            }
-            if let Some(check) = &check_now {
-                b.place_button(check, Target::CheckNow, bx, ty, false, !model.update_busy);
-            }
-        }
     }
     h
 }
@@ -960,14 +923,16 @@ fn size_checks<S: Shaper>(b: &mut Builder<S>, model: &Model, x: f32, y: f32) -> 
 
 enum Block<T> {
     Logo,
-    Space(f32),
+    /// The gap to the next block, in place of `ABOUT_SPACING`.
+    Gap(f32),
     Centered(Shaped<T>),
     Buttons(Vec<(ButtonSize<T>, Target, bool, bool)>),
     Links(Option<Shaped<T>>, Shaped<T>, Link),
     Line,
 }
 
-const LOGO_SIZE: f32 = 128.0;
+// As the macOS apps' About, and WeeJ's.
+const LOGO_SIZE: f32 = 96.0;
 const ABOUT_SPACING: f32 = 6.0;
 
 fn about_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32, viewport_h: f32) -> f32 {
@@ -975,17 +940,17 @@ fn about_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32, viewport
     let label = |b: &mut Builder<S>, text: &str| b.shape(text, LABEL, f32::MAX, Wrap::Line);
     let mut blocks = vec![
         Block::Logo,
-        Block::Space(8.0),
+        Block::Gap(12.0),
         Block::Centered(b.shape("Wrecktangle", APP_NAME, f32::MAX, Wrap::Line)),
-        Block::Space(4.0),
+        Block::Gap(10.0),
         Block::Links(
             Some(b.shape(&lang::t("about.made_by"), SMALL, f32::MAX, Wrap::Line)),
             b.shape("Zolfer Figueiredo", SMALL, f32::MAX, Wrap::Line),
             Link::Author,
         ),
-        Block::Space(4.0),
+        Block::Gap(10.0),
         Block::Centered(b.shape(&model.about_version, BODY, f32::MAX, Wrap::Line)),
-        Block::Space(16.0),
+        Block::Gap(14.0),
     ];
     let mut buttons = vec![(
         b.button("about.check"),
@@ -1011,21 +976,21 @@ fn about_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32, viewport
         )));
     }
     blocks.extend([
-        Block::Space(16.0),
+        Block::Gap(14.0),
         Block::Line,
-        Block::Space(16.0),
+        Block::Gap(14.0),
         Block::Links(None, label(b, &lang::t("about.website")), Link::Website),
         Block::Centered(label(b, &lang::t("about.liked"))),
-        Block::Space(6.0),
+        Block::Gap(14.0),
         Block::Buttons(vec![(
             b.button("about.coffee"),
             Target::Link(Link::Coffee),
             false,
             true,
         )]),
-        Block::Space(16.0),
+        Block::Gap(14.0),
         Block::Line,
-        Block::Space(16.0),
+        Block::Gap(14.0),
         Block::Links(
             Some(label(b, &lang::t("about.inspired_by"))),
             label(b, "Rectangle"),
@@ -1033,22 +998,38 @@ fn about_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32, viewport
         ),
     ]);
 
+    // Each block with the gap above it: ABOUT_SPACING, or the Gap just before it.
+    let mut placed = Vec::new();
+    let mut gap = 0.0;
+    for block in blocks {
+        match block {
+            Block::Gap(h) => gap = h,
+            block => {
+                placed.push((gap, block));
+                gap = ABOUT_SPACING;
+            }
+        }
+    }
+
     let hair = b.hairline();
     let block_h = |block: &Block<S::Text>| match block {
         Block::Logo => LOGO_SIZE,
-        Block::Space(h) => *h,
+        Block::Gap(_) => 0.0,
         Block::Centered(text) => text.h,
         Block::Buttons(buttons) => buttons.iter().map(|b| b.0.h).fold(0.0, f32::max),
         Block::Links(lead, text, _) => lead.as_ref().map_or(text.h, |l| l.h.max(text.h)),
         Block::Line => hair,
     };
     let total = 2.0 * PAGE_PADDING
-        + blocks.iter().map(block_h).sum::<f32>()
-        + ABOUT_SPACING * (blocks.len() - 1) as f32;
+        + placed
+            .iter()
+            .map(|(gap, block)| gap + block_h(block))
+            .sum::<f32>();
     let content_h = total.max(viewport_h);
     let mut y = b.snap.round((content_h - total) / 2.0 + PAGE_PADDING);
 
-    for block in blocks {
+    for (gap, block) in placed {
+        y = b.snap.round(y + gap);
         let h = block_h(&block);
         match block {
             Block::Logo => {
@@ -1059,7 +1040,7 @@ fn about_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32, viewport
                     LOGO_SIZE,
                 ))));
             }
-            Block::Space(_) => {}
+            Block::Gap(_) => {}
             Block::Centered(text) => {
                 let x = if text.w >= w {
                     PAGE_PADDING
@@ -1096,7 +1077,7 @@ fn about_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32, viewport
                 b.divider(PAGE_PADDING, y, w);
             }
         }
-        y = b.snap.round(y + h + ABOUT_SPACING);
+        y += h;
     }
     content_h
 }
@@ -1658,7 +1639,6 @@ mod tests {
                     locked: i == 0,
                 })
                 .collect(),
-            update_status: "Version 1.0.0".into(),
             about_version: "Version 1.0.0".into(),
             ..Model::default()
         }
@@ -1744,13 +1724,15 @@ mod tests {
 
     #[test]
     fn update_button_shows_only_when_an_update_is_available() {
-        for page in [Page::General, Page::About] {
-            let mut m = model();
-            m.page = page;
-            assert!(!lay(&m).has_target(Target::Update));
-            m.update_available = true;
-            assert!(lay(&m).has_target(Target::Update));
-        }
+        let mut m = model();
+        m.page = Page::About;
+        assert!(!lay(&m).has_target(Target::Update));
+        m.update_available = true;
+        assert!(lay(&m).has_target(Target::Update));
+        // General only has the switches; checking and updating are on About.
+        m.page = Page::General;
+        assert!(!lay(&m).has_target(Target::Update));
+        assert!(!lay(&m).has_target(Target::CheckNow));
     }
 
     #[test]
@@ -1763,7 +1745,7 @@ mod tests {
             })
         };
         let mut m = model();
-        m.page = Page::General;
+        m.page = Page::About;
         m.update_available = true;
         assert!(has_label(&m, "button.download"));
         m.update_installable = true;
@@ -1772,13 +1754,13 @@ mod tests {
     }
 
     #[test]
-    fn install_switch_sits_under_the_check_switch() {
+    fn update_switches_follow_the_colors_switch_in_app() {
         let mut m = model();
         m.page = Page::General;
         let order = lay(&m).focus_order();
         let at = |t: Target| order.iter().position(|o| o.0 == t).expect("target");
+        assert_eq!(at(Target::AutoUpdate), at(Target::Colors) + 1);
         assert_eq!(at(Target::AutoInstall), at(Target::AutoUpdate) + 1);
-        assert_eq!(at(Target::CheckNow), at(Target::AutoInstall) + 1);
     }
 
     #[test]
@@ -1798,7 +1780,8 @@ mod tests {
         let order = lay(&m).focus_order();
         assert!(order.contains(&(Target::Size(0), false)));
         assert!(order.contains(&(Target::Size(1), true)));
-        assert!(order.contains(&(Target::CheckNow, false)));
+        m.page = Page::About;
+        assert!(lay(&m).focus_order().contains(&(Target::CheckNow, false)));
     }
 
     #[test]
