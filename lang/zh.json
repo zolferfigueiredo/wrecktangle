@@ -48,7 +48,6 @@
   "group.corners": "四角",
   "group.displays": "显示器",
   "group.halves": "半屏",
-  "group.startup": "启动",
   "group.window": "窗口",
   "group.window_sizes": "窗口尺寸",
   "notify.admin_blocked": "该窗口以管理员身份运行，无法移动。",
