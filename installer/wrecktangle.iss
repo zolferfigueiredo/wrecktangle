@@ -79,12 +79,15 @@ korean.LaunchAtStartup=시작할 때 실행
 [Tasks]
 ; Only on a first install, so an update keeps what the user chose in Settings.
 Name: "startup"; Description: "{cm:LaunchAtStartup}"; Flags: unchecked; Check: not IsUpgrade
+; Windows lets only the user pin to the taskbar, so a desktop shortcut is what setup can offer.
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked; Check: not IsUpgrade
 
 [Files]
 Source: "{#SourceExe}"; DestDir: "{app}"; DestName: "wrecktangle.exe"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\Wrecktangle"; Filename: "{app}\wrecktangle.exe"
+Name: "{autodesktop}\Wrecktangle"; Filename: "{app}\wrecktangle.exe"; Tasks: desktopicon
 
 [Registry]
 ; Same value name and quoted path as src/startup.rs writes.
