@@ -48,7 +48,6 @@
   "group.corners": "Cantos",
   "group.displays": "Telas",
   "group.halves": "Metades",
-  "group.startup": "Inicialização",
   "group.window": "Janela",
   "group.window_sizes": "Tamanhos de janela",
   "notify.admin_blocked": "Essa janela está rodando como administrador e não pode ser movida.",

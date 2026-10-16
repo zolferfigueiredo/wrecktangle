@@ -48,7 +48,6 @@
   "group.corners": "Corners",
   "group.displays": "Displays",
   "group.halves": "Halves",
-  "group.startup": "Startup",
   "group.window": "Window",
   "group.window_sizes": "Window sizes",
   "notify.admin_blocked": "That window is running as administrator and cannot be moved.",

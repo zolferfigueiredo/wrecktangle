@@ -363,7 +363,7 @@ impl<S: Shaper> Builder<'_, S> {
     fn section_title(&mut self, key: &str, x: f32, y: f32, w: f32) -> f32 {
         let title = self.shape(&lang::t(key), SECTION, w, Wrap::Ellipsis);
         self.text(&title, x, y, Ink::Foreground);
-        self.snap.round(y + title.h) + 4.0
+        self.snap.round(y + title.h) + 6.0
     }
 
     /// Lays out a card's rows with `rows` (given the inner left, top and
@@ -495,7 +495,11 @@ fn tab_bar<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) {
         b.hit(Target::Tab(page), rect, true);
         x += tab_w + 4.0;
     }
-    b.divider(0.0, TAB_BAR_HEIGHT, width);
+    b.divider(
+        PAGE_PADDING,
+        TAB_BAR_HEIGHT,
+        (width - 2.0 * PAGE_PADDING).max(0.0),
+    );
 }
 
 const fn area(fx: f32, fy: f32, fw: f32, fh: f32) -> IconGlyph {
@@ -735,6 +739,17 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
             x,
             y,
             w,
+            &lang::t("general.startup"),
+            &lang::t("general.startup_desc"),
+            Trailing::Switch(Target::Startup, model.startup),
+        );
+        y = b.divider(x, y, w);
+        y += setting_row(
+            b,
+            model,
+            x,
+            y,
+            w,
             &lang::t("general.colors"),
             &lang::t("general.colors_desc"),
             Trailing::Switch(Target::Colors, model.wrecktangle_colors),
@@ -776,20 +791,6 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
             Trailing::Nothing,
         );
         y + size_checks(b, model, x, y)
-    });
-
-    y = b.section_title("group.startup", x, y + 16.0, w);
-    y = b.card(x, y, w, |b, x, y, w| {
-        y + setting_row(
-            b,
-            model,
-            x,
-            y,
-            w,
-            &lang::t("general.startup"),
-            &lang::t("general.startup_desc"),
-            Trailing::Switch(Target::Startup, model.startup),
-        )
     });
 
     y + 20.0
@@ -1671,6 +1672,24 @@ mod tests {
     }
 
     #[test]
+    fn tab_bar_line_spans_the_content_width() {
+        let layout = lay(&model());
+        let lines: Vec<&Rect> = layout
+            .header
+            .iter()
+            .filter_map(|item| match item {
+                Item::Divider(r) => Some(r),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lines.len(), 1);
+        assert_eq!(
+            (lines[0].x, lines[0].y, lines[0].w),
+            (PAGE_PADDING, TAB_BAR_HEIGHT, 640.0 - 2.0 * PAGE_PADDING)
+        );
+    }
+
+    #[test]
     fn shortcut_rows_are_36_or_40_with_a_note() {
         let mut m = model();
         let plain = row_heights(&lay(&m));
@@ -1764,12 +1783,13 @@ mod tests {
     }
 
     #[test]
-    fn colors_switch_sits_under_the_language_box() {
+    fn startup_then_colors_switches_sit_under_the_language_box() {
         let mut m = model();
         m.page = Page::General;
         let order = lay(&m).focus_order();
         let at = |t: Target| order.iter().position(|o| o.0 == t).expect("target");
-        assert_eq!(at(Target::Colors), at(Target::Language) + 1);
+        assert_eq!(at(Target::Startup), at(Target::Language) + 1);
+        assert_eq!(at(Target::Colors), at(Target::Startup) + 1);
     }
 
     #[test]

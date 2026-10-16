@@ -48,7 +48,6 @@
   "group.corners": "Esquinas",
   "group.displays": "Pantallas",
   "group.halves": "Mitades",
-  "group.startup": "Inicio",
   "group.window": "Ventana",
   "group.window_sizes": "Tamaños de ventana",
   "notify.admin_blocked": "Esa ventana se ejecuta como administrador y no se puede mover.",
