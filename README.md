@@ -209,20 +209,21 @@ cloning:
 git config core.hooksPath .githooks
 ```
 
-**Release.** `release.bat` does it in two steps; it needs git, `gh` signed in
-and cargo, and `-DryRun` shows what it would do:
+**Release.** It takes two steps; `release.bat` needs git, `gh` signed in and
+cargo, and `-DryRun` shows what it would do:
 
-1. `release.bat 0.4.1` opens a pull request that bumps the version to 0.4.1
-   in `Cargo.toml`, `Cargo.lock`, and this README's release badge and
+1. `release.bat 0.4.1` opens a pull request into `dev` that bumps the version
+   to 0.4.1 in `Cargo.toml`, `Cargo.lock`, and this README's release badge and
    download links (CI fails while they differ).
-2. Once that is merged, `release.bat` checks that CI passed on `main`, asks
-   you to confirm, tags `main` with `v0.4.1`, pushes the tag and shows the
-   Release workflow's progress.
+2. Once that is merged, merge `dev` into `main`. The Release workflow sees a
+   version on `main` with no release yet, publishes it and tags the merged
+   commit `v0.4.1`.
 
-Double-clicking `release.bat` does whichever step is next: it publishes the
-version on `main` if it isn't released yet, and otherwise asks for the next
-version. The Release workflow checks the tag against `Cargo.toml`, refuses a tag that
-isn't on `main`, runs the tests and builds `wrecktangle.exe` for 64-bit and
+Double-clicking `release.bat` publishes the version on `main` by hand if it
+isn't released yet (it checks that CI passed, asks you to confirm and pushes
+the tag), and otherwise asks for the next version. On a tag, the Release
+workflow checks it against `Cargo.toml` and refuses one that isn't on `main`.
+Either way it runs the tests and builds `wrecktangle.exe` for 64-bit and
 32-bit Windows on a Windows runner with MSVC, packs each into a zip and an
 Inno Setup installer, and publishes a GitHub release named
 "Wrecktangle <version>" with:
