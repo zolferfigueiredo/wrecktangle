@@ -14,9 +14,9 @@ use windows::core::PCWSTR;
 // NIN_KEYSELECT = (NIN_SELECT | 0x1).
 const NIN_KEYSELECT: u32 = NIN_SELECT | 1;
 use windows::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreatePopupMenu, DestroyMenu, HICON, MF_CHECKED, MF_SEPARATOR, MF_STRING,
-    MF_UNCHECKED, PostMessageW, SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    TrackPopupMenu, WM_CLOSE, WM_CONTEXTMENU, WM_NULL,
+    AppendMenuW, CreatePopupMenu, DestroyIcon, DestroyMenu, HICON, MF_CHECKED, MF_SEPARATOR,
+    MF_STRING, MF_UNCHECKED, PostMessageW, SetForegroundWindow, TPM_NONOTIFY, TPM_RETURNCMD,
+    TPM_RIGHTBUTTON, TrackPopupMenu, WM_CLOSE, WM_CONTEXTMENU, WM_NULL,
 };
 
 use crate::{app, lang, settings, startup, update};
@@ -74,10 +74,14 @@ pub fn add(hwnd: HWND) -> windows::core::Result<()> {
         let mut nid = base_nid(hwnd);
         nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP;
         nid.uCallbackMessage = app::WM_APP_TRAY;
-        nid.hIcon = load_icon();
+        let icon = load_icon();
+        nid.hIcon = icon;
         nid.szTip = wide_buf("Wrecktangle");
 
-        Shell_NotifyIconW(NIM_ADD, &nid).ok()?;
+        // The shell keeps its own copy; this runs again on every Explorer restart.
+        let added = Shell_NotifyIconW(NIM_ADD, &nid).ok();
+        let _ = DestroyIcon(icon);
+        added?;
         nid.Anonymous.uVersion = NOTIFYICON_VERSION_4;
         Shell_NotifyIconW(NIM_SETVERSION, &nid).ok()?;
         Ok(())
