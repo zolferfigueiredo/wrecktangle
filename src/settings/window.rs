@@ -6,8 +6,7 @@
 use std::cell::{Cell, RefCell};
 
 use windows::Win32::Foundation::{
-    COLORREF, D2DERR_RECREATE_TARGET, ERROR_CLASS_ALREADY_EXISTS, GetLastError, HWND, LPARAM,
-    LRESULT, POINT, RECT, WPARAM,
+    COLORREF, D2DERR_RECREATE_TARGET, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{
     BeginPaint, ClientToScreen, CreateSolidBrush, DeleteObject, EndPaint, FillRect,
@@ -25,15 +24,16 @@ use windows::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, CS_HREDRAW, CS_VREDRAW, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-    DestroyMenu, GetClientRect, GetCursorPos, HTCLIENT, IDC_ARROW, IDC_HAND, IsIconic,
-    IsWindowVisible, LoadCursorW, MF_CHECKED, MF_STRING, MINMAXINFO, RegisterClassExW, SC_KEYMENU,
-    SPI_GETWHEELSCROLLLINES, SW_HIDE, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE, SWP_NOZORDER,
-    SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetCursor, SetForegroundWindow, SetWindowPos,
-    SetWindowTextW, ShowWindow, SystemParametersInfoW, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_TOPALIGN,
-    TPM_VERTICAL, TPMPARAMS, TrackPopupMenuEx, WA_INACTIVE, WHEEL_DELTA, WINDOW_EX_STYLE,
-    WM_ACTIVATE, WM_CAPTURECHANGED, WM_CLOSE, WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO,
-    WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SETCURSOR,
-    WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOMMAND, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
+    DestroyMenu, DestroyWindow, GetClassInfoExW, GetClientRect, GetCursorPos, HTCLIENT, IDC_ARROW,
+    IDC_HAND, IsIconic, IsWindowVisible, LoadCursorW, MF_CHECKED, MF_STRING, MINMAXINFO,
+    RegisterClassExW, SC_KEYMENU, SPI_GETWHEELSCROLLLINES, SW_RESTORE, SW_SHOW, SWP_NOACTIVATE,
+    SWP_NOZORDER, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetCursor, SetForegroundWindow,
+    SetWindowPos, SetWindowTextW, ShowWindow, SystemParametersInfoW, TPM_LEFTALIGN, TPM_RETURNCMD,
+    TPM_TOPALIGN, TPM_VERTICAL, TPMPARAMS, TrackPopupMenuEx, WA_INACTIVE, WHEEL_DELTA,
+    WINDOW_EX_STYLE, WM_ACTIVATE, WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DPICHANGED,
+    WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
+    WM_MOUSEWHEEL, WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOMMAND, WNDCLASSEXW,
+    WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{Error, PCWSTR, Result, w};
 
@@ -187,21 +187,28 @@ pub fn create() -> Result<()> {
         // (assets/wrecktangle.rc), not a real memory address.
         #[allow(clippy::manual_dangling_ptr)]
         let icon = PCWSTR(1usize as *const u16);
-        let class = WNDCLASSEXW {
+        // Registered on the first open only: the window is built on every
+        // open, and loading the class icons again would leak them.
+        let mut registered = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-            style: CS_HREDRAW | CS_VREDRAW,
-            lpfnWndProc: Some(wndproc),
-            hInstance: hinstance.into(),
-            hIcon: LoadIconMetric(Some(hinstance.into()), icon, LIM_LARGE).unwrap_or_default(),
-            hIconSm: LoadIconMetric(Some(hinstance.into()), icon, LIM_SMALL).unwrap_or_default(),
-            hCursor: LoadCursorW(None, IDC_ARROW)?,
-            lpszClassName: CLASS_NAME,
             ..Default::default()
         };
-        // A failed CreateWindowExW below leaves the class registered for the
-        // next attempt.
-        if RegisterClassExW(&class) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS {
-            return Err(Error::from_thread());
+        if GetClassInfoExW(Some(hinstance.into()), CLASS_NAME, &mut registered).is_err() {
+            let class = WNDCLASSEXW {
+                cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                style: CS_HREDRAW | CS_VREDRAW,
+                lpfnWndProc: Some(wndproc),
+                hInstance: hinstance.into(),
+                hIcon: LoadIconMetric(Some(hinstance.into()), icon, LIM_LARGE).unwrap_or_default(),
+                hIconSm: LoadIconMetric(Some(hinstance.into()), icon, LIM_SMALL)
+                    .unwrap_or_default(),
+                hCursor: LoadCursorW(None, IDC_ARROW)?,
+                lpszClassName: CLASS_NAME,
+                ..Default::default()
+            };
+            if RegisterClassExW(&class) == 0 {
+                return Err(Error::from_thread());
+            }
         }
 
         let (x, y, w, h, monitor_dpi) = placement();
@@ -865,11 +872,21 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             }
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
+        // Destroyed rather than hidden: its Direct2D device and swap chain
+        // stay allocated as long as the window exists. settings::open builds
+        // it again.
         WM_CLOSE => {
             super::on_close();
             unsafe {
-                let _ = ShowWindow(hwnd, SW_HIDE);
+                let _ = DestroyWindow(hwnd);
             }
+            LRESULT(0)
+        }
+        WM_DESTROY => {
+            HANDLE.with(|h| h.set(None));
+            // Taken out of the cell first, so Gfx is released after the borrow.
+            let state = WINDOW.with(|cell| cell.try_borrow_mut().ok().and_then(|mut s| s.take()));
+            drop(state);
             LRESULT(0)
         }
         _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
