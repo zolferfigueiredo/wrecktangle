@@ -48,7 +48,14 @@ jobs:
               echo "Tag $GITHUB_REF_NAME is not on main; merge first, then tag main" >&2
               exit 1
             fi
-            publish=true
+            # Publishing from main makes this tag with z's login, not
+            # github.token, so that push starts this workflow again.
+            if gh release view "v$version" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "v$version is already released."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            else
+              publish=true
+            fi
           elif [ "$GITHUB_EVENT_NAME" = push ]; then
             if gh release view "v$version" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
               echo "v$version is already released."
