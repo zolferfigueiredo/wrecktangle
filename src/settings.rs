@@ -123,7 +123,7 @@ fn run(command: Command) {
     }
 }
 
-/// The window was closed; it only hides.
+/// The window was closed; it is destroyed, and the next open builds it again.
 fn on_close() {
     cancel_recording();
 }
