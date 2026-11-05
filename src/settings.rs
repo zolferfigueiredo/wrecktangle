@@ -81,7 +81,7 @@ fn run(command: Command) {
         Command::Record(index) => start_recording(index),
         Command::Clear(index) => {
             let mut config = app::current_config();
-            set_shortcut_field(&mut config.shortcuts, Action::ALL[index], None);
+            config.shortcuts.set(Action::ALL[index], None);
             commit(config);
         }
         Command::RestoreDefaults => {
@@ -449,27 +449,6 @@ pub fn on_recorder_key(vk: u16, mods: isize) {
         return;
     }
 
-    set_shortcut_field(&mut config.shortcuts, Action::ALL[index], Some(candidate));
+    config.shortcuts.set(Action::ALL[index], Some(candidate));
     commit(config);
-}
-
-fn set_shortcut_field(
-    shortcuts: &mut crate::config::Shortcuts,
-    action: Action,
-    value: Option<Shortcut>,
-) {
-    match action {
-        Action::Left => shortcuts.left = value,
-        Action::Right => shortcuts.right = value,
-        Action::Top => shortcuts.top = value,
-        Action::Bottom => shortcuts.bottom = value,
-        Action::TopLeft => shortcuts.top_left = value,
-        Action::TopRight => shortcuts.top_right = value,
-        Action::BottomLeft => shortcuts.bottom_left = value,
-        Action::BottomRight => shortcuts.bottom_right = value,
-        Action::Maximize => shortcuts.maximize = value,
-        Action::Center => shortcuts.center = value,
-        Action::NextDisplay => shortcuts.next_display = value,
-        Action::PreviousDisplay => shortcuts.previous_display = value,
-    }
 }

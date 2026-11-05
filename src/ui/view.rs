@@ -533,7 +533,11 @@ const GROUPS: [(&str, &[(usize, IconGlyph)]); 4] = [
     ),
     (
         "group.displays",
-        &[(10, IconGlyph::Next), (11, IconGlyph::Previous)],
+        &[
+            (10, IconGlyph::Next),
+            (11, IconGlyph::Previous),
+            (12, IconGlyph::Project),
+        ],
     ),
 ];
 
@@ -1364,10 +1368,13 @@ impl<T: Clone> Painter<'_, T> {
         let frame = Rect::new(x, y, g.w / s, g.h / s);
         self.fill(frame, g.radius / s, fg.with_alpha(0.04));
         self.stroke(frame, g.radius / s, g.stroke / s, fg.with_alpha(0.5));
+        let glyph = |r: Rect| Rect::new(x + r.x / s, y + r.y / s, r.w / s, r.h / s);
         match g.shape {
-            IconShape::Fill(r) => {
-                let rect = Rect::new(x + r.x / s, y + r.y / s, r.w / s, r.h / s);
-                self.fill(rect, g.glyph_radius / s, self.p.accent);
+            IconShape::Fill(r) => self.fill(glyph(r), g.glyph_radius / s, self.p.accent),
+            IconShape::Pair(screens) => {
+                for r in screens {
+                    self.fill(glyph(r), g.glyph_radius / s, self.p.accent);
+                }
             }
             IconShape::Chevron(points) => self.ops.push(Op::Lines {
                 figures: vec![
@@ -1587,6 +1594,7 @@ pub fn paint<T: Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layout::Action;
     use crate::theme::Mode;
     use crate::ui::palette::palette;
 
@@ -1624,7 +1632,7 @@ mod tests {
 
     fn model() -> Model {
         Model {
-            rows: (0..12)
+            rows: (0..Action::ALL.len())
                 .map(|i| Row {
                     label: format!("Action {i}"),
                     keys: vec!["Ctrl".into(), "Alt".into(), "\u{2190}".into()],
@@ -1698,6 +1706,94 @@ mod tests {
         m.rows[1].note = "Overrides something".into();
         let noted = row_heights(&lay(&m));
         assert_eq!(noted[1] - noted[0], 40.0 + 1.0);
+    }
+
+    #[test]
+    fn every_action_has_one_row_on_the_shortcuts_page() {
+        let mut pills: Vec<usize> = lay(&model())
+            .content
+            .iter()
+            .filter_map(|item| match item {
+                Item::Pill { index, .. } => Some(*index),
+                _ => None,
+            })
+            .collect();
+        pills.sort_unstable();
+        assert_eq!(pills, (0..Action::ALL.len()).collect::<Vec<_>>());
+    }
+
+    fn project_index() -> usize {
+        Action::ALL
+            .iter()
+            .position(|a| *a == Action::Project)
+            .expect("project action")
+    }
+
+    #[test]
+    fn project_row_closes_the_displays_group_with_the_two_screens_icon() {
+        let (_, displays) = GROUPS
+            .iter()
+            .find(|(title, _)| *title == "group.displays")
+            .expect("displays group");
+        assert_eq!(
+            displays.last(),
+            Some(&(project_index(), IconGlyph::Project))
+        );
+    }
+
+    #[test]
+    fn project_row_can_be_recorded_and_cleared() {
+        let index = project_index();
+        let mut m = model();
+        m.rows[index].keys.clear();
+        let layout = lay(&m);
+        assert!(layout.has_target(Target::Pill(index)));
+        assert!(!layout.has_target(Target::Clear(index)));
+        let empty = lang::t("recorder.click_to_set");
+        assert!(layout.content.iter().any(|item| matches!(
+            item,
+            Item::Text { text, .. } if *text == empty
+        )));
+
+        m.rows[index].keys = vec!["Ctrl".into(), "Alt".into(), "P".into()];
+        assert!(lay(&m).has_target(Target::Clear(index)));
+    }
+
+    #[test]
+    fn project_icon_paints_two_accent_screens() {
+        let layout = lay(&model());
+        let palette = palette(Mode::Light, false, None);
+        let ops = paint(
+            &layout,
+            &Interaction::default(),
+            &Scroll::default(),
+            &palette,
+            Snap::new(1.0),
+        );
+        let geometry = layout_icon(IconGlyph::Project, 1.0);
+        let IconShape::Pair(screens) = geometry.shape else {
+            panic!("expected two screens");
+        };
+        let (x, y) = layout
+            .content
+            .iter()
+            .find_map(|item| match item {
+                Item::Icon { x, y, geometry } if matches!(geometry.shape, IconShape::Pair(_)) => {
+                    Some((*x, *y))
+                }
+                _ => None,
+            })
+            .expect("project icon");
+        for screen in screens {
+            let expected = screen.offset(x, y);
+            assert!(
+                ops.iter().any(|op| matches!(
+                    op,
+                    Op::Fill { rect, color, .. } if *rect == expected && *color == palette.accent
+                )),
+                "{expected:?}"
+            );
+        }
     }
 
     #[test]

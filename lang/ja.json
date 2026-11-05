@@ -14,6 +14,7 @@
   "action.maximize": "最大化 / 元に戻す",
   "action.next_display": "次のディスプレイ",
   "action.previous_display": "前のディスプレイ",
+  "action.project": "画面の投影 (Win+P)",
   "action.right": "右半分",
   "action.top": "上半分",
   "action.top_left": "左上",

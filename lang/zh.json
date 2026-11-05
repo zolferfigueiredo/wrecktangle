@@ -14,6 +14,7 @@
   "action.maximize": "最大化 / 还原",
   "action.next_display": "下一个显示器",
   "action.previous_display": "上一个显示器",
+  "action.project": "投影（Win+P）",
   "action.right": "右半部分",
   "action.top": "上半部分",
   "action.top_left": "左上角",

@@ -14,6 +14,7 @@
   "action.maximize": "최대화 / 복원",
   "action.next_display": "다음 디스플레이",
   "action.previous_display": "이전 디스플레이",
+  "action.project": "화면 프로젝션 (Win+P)",
   "action.right": "오른쪽",
   "action.top": "위쪽",
   "action.top_left": "왼쪽 위",

@@ -54,10 +54,12 @@ pub enum Action {
     Center,
     NextDisplay,
     PreviousDisplay,
+    /// Opens the Windows Project menu, the one Win+P opens.
+    Project,
 }
 
 impl Action {
-    pub const ALL: [Action; 12] = [
+    pub const ALL: [Action; 13] = [
         Action::Left,
         Action::Right,
         Action::Top,
@@ -70,6 +72,7 @@ impl Action {
         Action::Center,
         Action::NextDisplay,
         Action::PreviousDisplay,
+        Action::Project,
     ];
 
     pub fn key(&self) -> &'static str {
@@ -86,6 +89,7 @@ impl Action {
             Action::Center => "action.center",
             Action::NextDisplay => "action.next_display",
             Action::PreviousDisplay => "action.previous_display",
+            Action::Project => "action.project",
         }
     }
 }
@@ -100,9 +104,11 @@ fn anchors(action: Action) -> (bool, bool) {
         Action::Right | Action::TopRight => (true, false),
         Action::Bottom | Action::BottomLeft => (false, true),
         Action::BottomRight => (true, true),
-        Action::Maximize | Action::Center | Action::NextDisplay | Action::PreviousDisplay => {
-            (false, false)
-        }
+        Action::Maximize
+        | Action::Center
+        | Action::NextDisplay
+        | Action::PreviousDisplay
+        | Action::Project => (false, false),
     }
 }
 
@@ -121,8 +127,9 @@ fn position_for(action: Action, w: i32, h: i32, work: Rect) -> Rect {
     Rect { x, y, w, h }
 }
 
-// Maximize, Center and the display moves are handled by the caller, not by
-// a fraction of the work area; this returns the work area unchanged for them.
+// Maximize, Center, the display moves and Project are handled by the caller,
+// not by a fraction of the work area; this returns the work area unchanged
+// for them.
 pub fn compute(action: Action, fraction: f64, work: Rect) -> Rect {
     match action {
         Action::Left | Action::Right => {
@@ -143,7 +150,11 @@ pub fn compute(action: Action, fraction: f64, work: Rect) -> Rect {
             let h = work.h - work.h / 2;
             position_for(action, w, h, work)
         }
-        Action::Maximize | Action::Center | Action::NextDisplay | Action::PreviousDisplay => work,
+        Action::Maximize
+        | Action::Center
+        | Action::NextDisplay
+        | Action::PreviousDisplay
+        | Action::Project => work,
     }
 }
 
@@ -242,6 +253,17 @@ mod tests {
             assert!(action.key().starts_with("action."));
             assert!(seen.insert(action.key()));
         }
+    }
+
+    #[test]
+    fn project_follows_the_display_moves() {
+        assert_eq!(Action::ALL.last(), Some(&Action::Project));
+        assert_eq!(Action::Project.key(), "action.project");
+    }
+
+    #[test]
+    fn project_leaves_the_work_area_alone() {
+        assert_eq!(compute(Action::Project, 0.5, MONITOR_1), MONITOR_1);
     }
 
     const MONITOR_0: Rect = Rect {

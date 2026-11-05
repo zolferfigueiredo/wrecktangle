@@ -16,12 +16,13 @@ use windows::Win32::System::Threading::{
     GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
     GA_ROOT, GetAncestor, GetClassNameW, GetForegroundWindow, GetWindowRect,
     GetWindowThreadProcessId, IsHungAppWindow, IsIconic, IsWindow, IsWindowVisible, IsZoomed,
-    SW_MAXIMIZE, SW_RESTORE, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos, ShowWindow,
+    SW_MAXIMIZE, SW_RESTORE, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos, ShowWindow,
 };
-use windows::core::BOOL;
+use windows::core::{BOOL, PCWSTR, w};
 
 use crate::config::Config;
 use crate::layout::{self, Action, Rect};
@@ -43,6 +44,9 @@ enum MoveOutcome {
 }
 
 pub fn apply_action(action: Action, config: &Config) -> ActionResult {
+    if action == Action::Project {
+        return open_project_menu();
+    }
     let Some(hwnd) = foreground_target() else {
         return ActionResult::NoTarget;
     };
@@ -65,6 +69,27 @@ pub fn apply_action(action: Action, config: &Config) -> ActionResult {
         MoveOutcome::NoOp => ActionResult::NoOp,
         MoveOutcome::Failed if elevated.is_none() => ActionResult::AdminBlocked,
         MoveOutcome::Failed => ActionResult::Failed,
+    }
+}
+
+// The menu Win+P opens. Opening it by URI rather than sending Win+P keeps
+// the trigger's own held modifiers out of the chord.
+fn open_project_menu() -> ActionResult {
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            w!("ms-settings-displays-topology:projection"),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // ShellExecuteW reports success as a value above 32.
+    if result.0 as usize > 32 {
+        ActionResult::Applied
+    } else {
+        ActionResult::Failed
     }
 }
 

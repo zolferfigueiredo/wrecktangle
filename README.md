@@ -65,7 +65,8 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
   1/2, 2/3 and 3/4 of the screen by default, or any mix of 1/4, 1/3, 1/2, 2/3
   and 3/4.
 - **Every monitor.** Move a window to the next or previous display with a
-  shortcut.
+  shortcut. **Project (Win+P)** opens the Windows Project menu from a second
+  shortcut of your choice; it has none until you set one.
 - **Lines up exactly.** Sizes use the window's visible frame, so snapped windows
   meet edge to edge without the gap Windows' invisible resize border leaves.
 - **Takes over busy shortcuts.** When Windows or another app already owns a
@@ -104,6 +105,7 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
 | Center | Ctrl+Alt+Home |
 | Next display | Ctrl+Alt+Win+Right |
 | Previous display | Ctrl+Alt+Win+Left |
+| Project (Win+P) | Not set |
 
 Every shortcut can be changed in Settings, from the tray icon.
 
