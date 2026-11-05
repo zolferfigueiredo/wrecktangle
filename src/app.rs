@@ -288,13 +288,15 @@ fn failed_message(failed: &[Action]) -> String {
 // Copies out what to register before calling RegisterHotKey, and only takes
 // the borrow again afterward to store the results, per the re-entrancy rule.
 // Shortcuts RegisterHotKey refuses go to the takeover hook; the returned
-// actions are the ones that still do not work.
+// actions are the ones that still do not work. Display mode's shortcut always
+// goes to the hook too, which relays it as a held Win+P and swallows it, so
+// its registered hotkey only fires when the hook is not seeing keys. With
+// the block switch on, the hook also swallows Windows' Win+Arrow chords.
 fn register_all(hwnd: HWND) -> Vec<Action> {
-    let entries: Vec<(i32, Action, Shortcut)> = STATE.with(|s| {
+    let (entries, blocked): (Vec<(i32, Action, Shortcut)>, Vec<Shortcut>) = STATE.with(|s| {
         let st = s.borrow();
-        let state = st.as_ref().expect("state initialized");
-        state
-            .config
+        let config = &st.as_ref().expect("state initialized").config;
+        let entries = config
             .shortcuts
             .entries()
             .into_iter()
@@ -302,8 +304,16 @@ fn register_all(hwnd: HWND) -> Vec<Action> {
             .filter_map(|(index, (action, shortcut))| {
                 shortcut.map(|sc| ((index + 1) as i32, action, sc))
             })
-            .collect()
+            .collect();
+        let blocked = takeover::blocked_chords(&config.shortcuts, config.block_windows_snap);
+        (entries, blocked)
     });
+
+    let relay = entries
+        .iter()
+        .find(|(_, action, _)| *action == Action::DisplayMode)
+        .map(|(_, _, sc)| *sc)
+        .filter(|sc| !takeover::is_reserved(sc));
 
     let mut hotkeys = HashMap::new();
     let mut refused: Vec<(Action, Shortcut)> = Vec::new();
@@ -319,10 +329,17 @@ fn register_all(hwnd: HWND) -> Vec<Action> {
 
     let hookable: Vec<(Action, Shortcut)> = refused
         .iter()
-        .filter(|(_, sc)| !takeover::is_reserved(sc))
+        .filter(|(action, sc)| *action != Action::DisplayMode && !takeover::is_reserved(sc))
         .copied()
         .collect();
-    let hooked = takeover::start(hwnd, &hookable);
+    let hooked = takeover::start(
+        hwnd,
+        takeover::Chords {
+            entries: hookable,
+            relay,
+            blocked,
+        },
+    );
 
     let mut claims = HashMap::new();
     let mut unavailable = Vec::new();

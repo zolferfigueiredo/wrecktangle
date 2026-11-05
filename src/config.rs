@@ -101,6 +101,7 @@ pub struct Shortcuts {
     pub center: Option<Shortcut>,
     pub next_display: Option<Shortcut>,
     pub previous_display: Option<Shortcut>,
+    pub display_mode: Option<Shortcut>,
 }
 
 impl Shortcuts {
@@ -118,10 +119,30 @@ impl Shortcuts {
             Action::Center => self.center,
             Action::NextDisplay => self.next_display,
             Action::PreviousDisplay => self.previous_display,
+            Action::DisplayMode => self.display_mode,
         }
     }
 
-    pub fn entries(&self) -> [(Action, Option<Shortcut>); 12] {
+    pub fn set(&mut self, action: Action, value: Option<Shortcut>) {
+        let slot = match action {
+            Action::Left => &mut self.left,
+            Action::Right => &mut self.right,
+            Action::Top => &mut self.top,
+            Action::Bottom => &mut self.bottom,
+            Action::TopLeft => &mut self.top_left,
+            Action::TopRight => &mut self.top_right,
+            Action::BottomLeft => &mut self.bottom_left,
+            Action::BottomRight => &mut self.bottom_right,
+            Action::Maximize => &mut self.maximize,
+            Action::Center => &mut self.center,
+            Action::NextDisplay => &mut self.next_display,
+            Action::PreviousDisplay => &mut self.previous_display,
+            Action::DisplayMode => &mut self.display_mode,
+        };
+        *slot = value;
+    }
+
+    pub fn entries(&self) -> [(Action, Option<Shortcut>); Action::ALL.len()] {
         Action::ALL.map(|action| (action, self.get(action)))
     }
 }
@@ -135,6 +156,7 @@ pub struct Config {
     pub last_update_check: u64,
     pub language: String,
     pub wrecktangle_colors: bool,
+    pub block_windows_snap: bool,
 }
 
 impl Config {
@@ -166,6 +188,8 @@ struct ConfigFile {
     language: Option<String>,
     #[serde(default)]
     wrecktangle_colors: Option<bool>,
+    #[serde(default)]
+    block_windows_snap: Option<bool>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -194,6 +218,8 @@ struct ShortcutsFile {
     next_display: Option<String>,
     #[serde(default)]
     previous_display: Option<String>,
+    #[serde(default)]
+    display_mode: Option<String>,
 }
 
 fn default_size_strings() -> Vec<String> {
@@ -207,6 +233,7 @@ fn default_size_strings() -> Vec<String> {
 // parse; the outer Option is None when the file should count as invalid.
 fn resolve_shortcut(raw: Option<String>, default_str: &str) -> Option<Option<Shortcut>> {
     match raw {
+        None if default_str.is_empty() => Some(None),
         None => Some(Some(
             shortcut::parse(default_str).expect("built in default shortcut must parse"),
         )),
@@ -235,6 +262,7 @@ fn resolve(file: ConfigFile) -> Option<Config> {
         center: resolve_shortcut(sf.center, "Ctrl+Alt+Home")?,
         next_display: resolve_shortcut(sf.next_display, "Ctrl+Alt+Win+Right")?,
         previous_display: resolve_shortcut(sf.previous_display, "Ctrl+Alt+Win+Left")?,
+        display_mode: resolve_shortcut(sf.display_mode, "")?,
     };
 
     Some(Config {
@@ -248,6 +276,7 @@ fn resolve(file: ConfigFile) -> Option<Config> {
             .filter(|code| lang::is_supported(code))
             .unwrap_or_default(),
         wrecktangle_colors: file.wrecktangle_colors.unwrap_or(false),
+        block_windows_snap: file.block_windows_snap.unwrap_or(false),
     })
 }
 
@@ -287,12 +316,14 @@ pub fn to_json_string(config: &Config) -> String {
             center: Some(format_opt(&config.shortcuts.center)),
             next_display: Some(format_opt(&config.shortcuts.next_display)),
             previous_display: Some(format_opt(&config.shortcuts.previous_display)),
+            display_mode: Some(format_opt(&config.shortcuts.display_mode)),
         }),
         check_updates: Some(config.check_updates),
         install_updates: Some(config.install_updates),
         last_update_check: Some(config.last_update_check),
         language: Some(config.language.clone()).filter(|code| !code.is_empty()),
         wrecktangle_colors: Some(config.wrecktangle_colors),
+        block_windows_snap: Some(config.block_windows_snap),
     };
     serde_json::to_string_pretty(&file).expect("config always serializes")
 }
@@ -527,6 +558,69 @@ mod tests {
             config.shortcuts.previous_display,
             shortcut::parse("Ctrl+Alt+Win+Left").ok()
         );
+        assert_eq!(config.shortcuts.display_mode, None);
+    }
+
+    #[test]
+    fn a_config_saved_before_the_display_mode_shortcut_loads_it_unbound() {
+        let (config, source) = load_from_str(
+            r#"{"shortcuts": {"left": "Ctrl+Alt+Left", "previous_display": "Ctrl+Alt+Win+Left"}}"#,
+        );
+        assert_eq!(source, Source::Loaded);
+        assert_eq!(config.shortcuts.display_mode, None);
+    }
+
+    #[test]
+    fn display_mode_shortcut_is_read_and_round_trips() {
+        let (config, source) = load_from_str(r#"{"shortcuts": {"display_mode": "Ctrl+Alt+P"}}"#);
+        assert_eq!(source, Source::Loaded);
+        assert_eq!(
+            config.shortcuts.display_mode,
+            shortcut::parse("Ctrl+Alt+P").ok()
+        );
+        assert_eq!(config.shortcuts.left, Config::defaults().shortcuts.left);
+
+        let json = to_json_string(&config);
+        assert!(json.contains(r#""display_mode": "Ctrl+Alt+P""#), "{json}");
+        let (reloaded, source) = load_from_str(&json);
+        assert_eq!(source, Source::Loaded);
+        assert_eq!(reloaded, config);
+    }
+
+    #[test]
+    fn unbound_display_mode_shortcut_is_saved_empty_and_stays_unbound() {
+        let config = Config::defaults();
+        let json = to_json_string(&config);
+        assert!(json.contains(r#""display_mode": """#), "{json}");
+        let (reloaded, _) = load_from_str(&json);
+        assert_eq!(reloaded.shortcuts.display_mode, None);
+    }
+
+    #[test]
+    fn unparseable_display_mode_shortcut_is_invalid() {
+        let (config, source) = load_from_str(r#"{"shortcuts": {"display_mode": "Ctrl+Nope"}}"#);
+        assert_eq!(source, Source::Invalid);
+        assert_eq!(config, Config::defaults());
+    }
+
+    #[test]
+    fn set_then_get_round_trips_for_every_action() {
+        let mut shortcuts = Config::defaults().shortcuts;
+        let chord = shortcut::parse("Ctrl+Shift+F12").ok();
+        for action in Action::ALL {
+            shortcuts.set(action, chord);
+            assert_eq!(shortcuts.get(action), chord, "{action:?}");
+            shortcuts.set(action, None);
+            assert_eq!(shortcuts.get(action), None, "{action:?}");
+        }
+        assert!(shortcuts.entries().iter().all(|(_, sc)| sc.is_none()));
+    }
+
+    #[test]
+    fn entries_follow_the_action_order() {
+        let shortcuts = Config::defaults().shortcuts;
+        let actions: Vec<Action> = shortcuts.entries().iter().map(|(a, _)| *a).collect();
+        assert_eq!(actions, Action::ALL);
     }
 
     #[test]
@@ -570,6 +664,26 @@ mod tests {
         assert!(config.wrecktangle_colors);
         let (reloaded, _) = load_from_str(&to_json_string(&config));
         assert_eq!(reloaded, config);
+    }
+
+    #[test]
+    fn block_windows_snap_defaults_off_and_round_trips() {
+        assert!(!Config::defaults().block_windows_snap);
+        let (config, source) = load_from_str(r#"{"block_windows_snap": true}"#);
+        assert_eq!(source, Source::Loaded);
+        assert!(config.block_windows_snap);
+        let json = to_json_string(&config);
+        assert!(json.contains(r#""block_windows_snap": true"#), "{json}");
+        let (reloaded, _) = load_from_str(&json);
+        assert_eq!(reloaded, config);
+        assert!(to_json_string(&Config::defaults()).contains(r#""block_windows_snap": false"#));
+    }
+
+    #[test]
+    fn wrongly_typed_block_windows_snap_is_invalid() {
+        let (config, source) = load_from_str(r#"{"block_windows_snap": "yes"}"#);
+        assert_eq!(source, Source::Invalid);
+        assert_eq!(config, Config::defaults());
     }
 
     #[test]

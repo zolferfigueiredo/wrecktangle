@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.7.1-blue" alt="Latest release"></a>
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.8.0-blue" alt="Latest release"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024%20edition-orange" alt="Rust 2024 edition"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x86%20%7C%20x64)-blue" alt="Windows 10 or 11, 32-bit or 64-bit">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT license"></a>
@@ -31,7 +31,7 @@
 
 ## Install
 
-1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.7.1/Wrecktangle-0.7.1-x64-setup.exe)
+1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.8.0/Wrecktangle-0.8.0-x64-setup.exe)
    and run it. It installs for your user only, into
    `%LOCALAPPDATA%\Programs\Wrecktangle`, and never asks for admin rights. It
    isn't code signed yet, so if Windows SmartScreen says it protected your PC,
@@ -41,14 +41,14 @@
 3. Press Ctrl+Alt+Left. The focused window fills the left half of its screen.
    Press it again for two thirds, and again for three quarters.
 
-Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.7.1/Wrecktangle-0.7.1-x64.zip):
+Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.8.0/Wrecktangle-0.8.0-x64.zip):
 put `wrecktangle.exe` somewhere permanent, run it from there, and turn on
 **Launch at startup** from the tray menu.
 
 You need Windows 10 or 11. The links above are for 64-bit Windows; on 32-bit
 Windows, take the
-[32-bit installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.7.1/Wrecktangle-0.7.1-x86-setup.exe)
-or [32-bit zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.7.1/Wrecktangle-0.7.1-x86.zip)
+[32-bit installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.8.0/Wrecktangle-0.8.0-x86-setup.exe)
+or [32-bit zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.8.0/Wrecktangle-0.8.0-x86.zip)
 instead. Uninstall it from Apps in Windows Settings.
 
 **Coming from Wectangle?** Wrecktangle used to be called Wectangle. On its
@@ -65,7 +65,15 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
   1/2, 2/3 and 3/4 of the screen by default, or any mix of 1/4, 1/3, 1/2, 2/3
   and 3/4.
 - **Every monitor.** Move a window to the next or previous display with a
-  shortcut.
+  shortcut. **Display mode** gives the Windows Project menu (Win+P) a second
+  shortcut of your choice that works like Win+P: keep its modifiers held and
+  press the key again to move through the options, then let go of the
+  modifiers to pick one. Its row appears once 2 or more screens are connected,
+  and it has no shortcut until you set one.
+- **Can quiet Windows' Win+Arrow keys.** Turn on **Block Windows' Win+Arrow
+  keys** in Settings and Win+Arrow and Win+Shift+Arrow stop snapping,
+  maximizing, minimizing and moving windows. Shortcuts you set on those keys
+  still work, and Win+Z is left alone.
 - **Lines up exactly.** Sizes use the window's visible frame, so snapped windows
   meet edge to edge without the gap Windows' invisible resize border leaves.
 - **Takes over busy shortcuts.** When Windows or another app already owns a
@@ -104,6 +112,7 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
 | Center | Ctrl+Alt+Home |
 | Next display | Ctrl+Alt+Win+Right |
 | Previous display | Ctrl+Alt+Win+Left |
+| Display mode | Not set |
 
 Every shortcut can be changed in Settings, from the tray icon.
 
@@ -118,6 +127,12 @@ low-level keyboard hook, installed only while at least one shortcut needs it.
 While the hook is on, the taken-over chord triggers Wrecktangle's action and is
 hidden from the owner and from the focused app. Settings shows the status as
 "Overrides <app>".
+
+The hook is also on while **Display mode** has a shortcut. It turns that
+chord into a held Win+P for as long as its modifiers stay down, which is what
+lets repeated presses move through the menu. And it is on while **Block
+Windows' Win+Arrow keys** is, to swallow those chords before Windows acts on
+them.
 
 - Win+L and Ctrl+Alt+Del are handled by Windows below the hook, so they
   cannot be taken over. Settings shows "Reserved by Windows" for them.
@@ -153,7 +168,8 @@ App section of Settings. The tray menu's "Check for updates..." and the
 
 Settings are stored at `%APPDATA%\Wrecktangle\config.json`. It holds the size
 cycle, the shortcut assigned to each action, `language` (a two letter code),
-`wrecktangle_colors` (default `false`), `check_updates` (default `true`) and
+`wrecktangle_colors` (default `false`), `block_windows_snap` (default
+`false`), `check_updates` (default `true`) and
 `last_update_check` (a Unix time in seconds, maintained by Wrecktangle).
 
 Edit it through the Settings window; a hand-edited file that fails to parse
@@ -167,6 +183,11 @@ change something in Settings.
 - **Admin windows.** Windows running as administrator cannot be moved by a
   non-elevated Wrecktangle, because of UIPI. Wrecktangle detects this up front
   and shows a one-time notification instead of failing silently.
+- **Display mode with an admin window focused.** Windows keeps the keyboard
+  hook from seeing keys while an administrator window has focus, so the
+  **Display mode** shortcut only opens the menu then, and pressing it again
+  does not move through the options. Blocked Win+Arrow keys work as usual
+  there too.
 - **AltGr note.** On a US-International keyboard layout, Ctrl+Alt+<key> is
   the same key chord as AltGr+<key>. Assigning a shortcut that way can block
   typing that key's AltGr character anywhere else. The Settings window flags

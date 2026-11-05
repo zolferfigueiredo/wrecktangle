@@ -21,7 +21,7 @@ use crate::config::{self, Config};
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
 use crate::ui::view::{Page, Row, SizeOption};
-use crate::{app, lang, startup, takeover, update};
+use crate::{app, lang, startup, takeover, update, window_ops};
 
 const MOD_BIT_CTRL: isize = 0x1;
 const MOD_BIT_ALT: isize = 0x2;
@@ -49,6 +49,7 @@ enum Command {
     SetStartup(bool),
     SetAutoUpdate(bool),
     SetAutoInstall(bool),
+    SetBlockSnap(bool),
     CheckNow,
     Update,
     OpenUrl(&'static str),
@@ -81,7 +82,7 @@ fn run(command: Command) {
         Command::Record(index) => start_recording(index),
         Command::Clear(index) => {
             let mut config = app::current_config();
-            set_shortcut_field(&mut config.shortcuts, Action::ALL[index], None);
+            config.shortcuts.set(Action::ALL[index], None);
             commit(config);
         }
         Command::RestoreDefaults => {
@@ -114,6 +115,13 @@ fn run(command: Command) {
             let enabled = update::auto_install_enabled();
             window::update(|m| m.auto_install = enabled);
         }
+        Command::SetBlockSnap(on) => {
+            let mut config = app::current_config();
+            config.block_windows_snap = on;
+            commit(config);
+            let on = app::current_config().block_windows_snap;
+            window::update(|m| m.block_windows_snap = on);
+        }
         Command::CheckNow => {
             update::check_now();
             on_update_state_changed();
@@ -134,9 +142,12 @@ fn refresh_all() {
     let auto_update = update::auto_enabled();
     let auto_install = update::auto_install_enabled();
     let language = lang::current_index();
-    let wrecktangle_colors = app::current_config().wrecktangle_colors;
+    let config = app::current_config();
+    let displays = window_ops::connected_display_count();
     window::update(|m| {
-        m.wrecktangle_colors = wrecktangle_colors;
+        m.wrecktangle_colors = config.wrecktangle_colors;
+        m.block_windows_snap = config.block_windows_snap;
+        m.displays = displays;
         m.startup = startup;
         m.auto_update = auto_update;
         m.auto_install = auto_install;
@@ -144,6 +155,12 @@ fn refresh_all() {
     });
     show_update_state();
     refresh_rows();
+}
+
+/// Screens were connected or removed; Display mode's row follows.
+fn show_displays() {
+    let displays = window_ops::connected_display_count();
+    window::update(|m| m.displays = displays);
 }
 
 fn set_language(index: usize) {
@@ -346,10 +363,10 @@ extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
         let is_keydown = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
         let is_keyup = msg == WM_KEYUP || msg == WM_SYSKEYUP;
         let vk = kb.vkCode as u16;
-        let is_our_dummy =
-            kb.flags.contains(LLKHF_INJECTED) && kb.dwExtraInfo == takeover::DUMMY_KEY_MAGIC;
+        let is_our_input =
+            kb.flags.contains(LLKHF_INJECTED) && kb.dwExtraInfo == takeover::OWN_INPUT_MAGIC;
 
-        if !is_our_dummy && !takeover::is_modifier_vk(vk) {
+        if !is_our_input && !takeover::is_modifier_vk(vk) {
             let phase = HOOK_PHASE.with(|p| p.get());
             match phase {
                 HookPhase::Idle => {}
@@ -449,27 +466,6 @@ pub fn on_recorder_key(vk: u16, mods: isize) {
         return;
     }
 
-    set_shortcut_field(&mut config.shortcuts, Action::ALL[index], Some(candidate));
+    config.shortcuts.set(Action::ALL[index], Some(candidate));
     commit(config);
-}
-
-fn set_shortcut_field(
-    shortcuts: &mut crate::config::Shortcuts,
-    action: Action,
-    value: Option<Shortcut>,
-) {
-    match action {
-        Action::Left => shortcuts.left = value,
-        Action::Right => shortcuts.right = value,
-        Action::Top => shortcuts.top = value,
-        Action::Bottom => shortcuts.bottom = value,
-        Action::TopLeft => shortcuts.top_left = value,
-        Action::TopRight => shortcuts.top_right = value,
-        Action::BottomLeft => shortcuts.bottom_left = value,
-        Action::BottomRight => shortcuts.bottom_right = value,
-        Action::Maximize => shortcuts.maximize = value,
-        Action::Center => shortcuts.center = value,
-        Action::NextDisplay => shortcuts.next_display = value,
-        Action::PreviousDisplay => shortcuts.previous_display = value,
-    }
 }

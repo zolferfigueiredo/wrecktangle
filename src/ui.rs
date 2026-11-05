@@ -95,12 +95,15 @@ pub enum IconGlyph {
     Center,
     Next,
     Previous,
+    /// Two screens side by side.
+    DisplayMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum IconShape {
     Fill(Rect),
     Chevron([(f32, f32); 3]),
+    Pair([Rect; 2]),
 }
 
 /// A layout icon in whole physical pixels: a 28x20 DIP frame with the glyph
@@ -151,6 +154,17 @@ pub fn layout_icon(glyph: IconGlyph, scale: f32) -> IconGeometry {
                 (x, x + chevron_w)
             };
             IconShape::Chevron([(tail, y), (tip, y + chevron_h / 2.0), (tail, y + chevron_h)])
+        }
+        IconGlyph::DisplayMode => {
+            let screen_w = even(cw * 0.36);
+            let screen_h = even(ch * 0.43);
+            let gap = even(cw * 0.1).max(2.0);
+            let x = inset + (cw - 2.0 * screen_w - gap) / 2.0;
+            let y = inset + (ch - screen_h) / 2.0;
+            IconShape::Pair([
+                Rect::new(x, y, screen_w, screen_h),
+                Rect::new(x + screen_w + gap, y, screen_w, screen_h),
+            ])
         }
     };
     IconGeometry {
@@ -284,7 +298,7 @@ mod tests {
     fn fill(geometry: &IconGeometry) -> Rect {
         match geometry.shape {
             IconShape::Fill(r) => r,
-            IconShape::Chevron(_) => panic!("expected a fill"),
+            _ => panic!("expected a fill"),
         }
     }
 
@@ -353,6 +367,25 @@ mod tests {
         assert!(next[1].0 > next[0].0);
         assert!(prev[1].0 < prev[0].0);
         assert_eq!(next[0].1 + next[2].1, 2.0 * next[1].1);
+    }
+
+    #[test]
+    fn display_mode_icon_is_two_equal_screens_centered_on_whole_pixels() {
+        for scale in SCALES {
+            let g = layout_icon(IconGlyph::DisplayMode, scale);
+            let IconShape::Pair([left, right]) = g.shape else {
+                panic!("expected two screens");
+            };
+            for v in [left.x, left.y, left.w, left.h, right.x, right.w] {
+                assert!(is_whole(v), "scale {scale}: {left:?} {right:?}");
+            }
+            assert_eq!((left.w, left.h, left.y), (right.w, right.h, right.y));
+            assert!(left.w > left.h, "scale {scale}: screens are landscape");
+            assert!(right.x > left.right(), "scale {scale}: a gap between");
+            assert_eq!(left.x, g.w - right.right(), "scale {scale}");
+            assert_eq!(left.y, g.h - left.bottom(), "scale {scale}");
+            assert!(left.x > g.stroke, "scale {scale}");
+        }
     }
 
     #[test]

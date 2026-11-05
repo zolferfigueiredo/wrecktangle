@@ -2,7 +2,13 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
 
-use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, RECT};
+use windows::Win32::Devices::Display::{
+    DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_PATH_INFO, GetDisplayConfigBufferSizes, QDC_ALL_PATHS,
+    QueryDisplayConfig,
+};
+use windows::Win32::Foundation::{
+    CloseHandle, ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, HANDLE, HWND, LPARAM, RECT,
+};
 use windows::Win32::Graphics::Dwm::{
     DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DWMWA_VISIBLE_FRAME_BORDER_THICKNESS,
     DwmGetWindowAttribute,
@@ -16,12 +22,14 @@ use windows::Win32::System::Threading::{
     GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
+use windows::Win32::UI::Shell::ShellExecuteW;
 use windows::Win32::UI::WindowsAndMessaging::{
-    GA_ROOT, GetAncestor, GetClassNameW, GetForegroundWindow, GetWindowRect,
+    GA_ROOT, GetAncestor, GetClassNameW, GetForegroundWindow, GetSystemMetrics, GetWindowRect,
     GetWindowThreadProcessId, IsHungAppWindow, IsIconic, IsWindow, IsWindowVisible, IsZoomed,
-    SW_MAXIMIZE, SW_RESTORE, SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos, ShowWindow,
+    SM_CMONITORS, SW_MAXIMIZE, SW_RESTORE, SW_SHOWNORMAL, SWP_NOACTIVATE, SWP_NOZORDER,
+    SetWindowPos, ShowWindow,
 };
-use windows::core::BOOL;
+use windows::core::{BOOL, PCWSTR, w};
 
 use crate::config::Config;
 use crate::layout::{self, Action, Rect};
@@ -43,6 +51,9 @@ enum MoveOutcome {
 }
 
 pub fn apply_action(action: Action, config: &Config) -> ActionResult {
+    if action == Action::DisplayMode {
+        return open_project_menu();
+    }
     let Some(hwnd) = foreground_target() else {
         return ActionResult::NoTarget;
     };
@@ -66,6 +77,79 @@ pub fn apply_action(action: Action, config: &Config) -> ActionResult {
         MoveOutcome::Failed if elevated.is_none() => ActionResult::AdminBlocked,
         MoveOutcome::Failed => ActionResult::Failed,
     }
+}
+
+// Opens the menu Win+P opens, without cycling through it. The takeover hook
+// normally relays the Display mode shortcut as a held Win+P; this is the fallback
+// for when the hook is not seeing keys (it failed to install, or an elevated
+// window has focus).
+fn open_project_menu() -> ActionResult {
+    let result = unsafe {
+        ShellExecuteW(
+            None,
+            w!("open"),
+            w!("ms-settings-displays-topology:projection"),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+    // ShellExecuteW reports success as a value above 32.
+    if result.0 as usize > 32 {
+        ActionResult::Applied
+    } else {
+        ActionResult::Failed
+    }
+}
+
+/// Screens plugged in, whether Windows shows anything on them or not. Unlike
+/// SM_CMONITORS this still counts two while duplicating or in "PC screen
+/// only"; a laptop's own panel is one.
+pub fn connected_display_count() -> usize {
+    for _ in 0..3 {
+        let (mut path_count, mut mode_count) = (0u32, 0u32);
+        unsafe {
+            if GetDisplayConfigBufferSizes(QDC_ALL_PATHS, &mut path_count, &mut mode_count)
+                != ERROR_SUCCESS
+            {
+                break;
+            }
+            let mut paths = vec![DISPLAYCONFIG_PATH_INFO::default(); path_count as usize];
+            let mut modes = vec![DISPLAYCONFIG_MODE_INFO::default(); mode_count as usize];
+            let result = QueryDisplayConfig(
+                QDC_ALL_PATHS,
+                &mut path_count,
+                paths.as_mut_ptr(),
+                &mut mode_count,
+                modes.as_mut_ptr(),
+                None,
+            );
+            // The screens changed between the two calls; ask again.
+            if result == ERROR_INSUFFICIENT_BUFFER {
+                continue;
+            }
+            if result != ERROR_SUCCESS {
+                break;
+            }
+            paths.truncate(path_count as usize);
+            let mut targets: Vec<(u32, i32, u32)> = paths
+                .iter()
+                .map(|path| path.targetInfo)
+                .filter(|target| target.targetAvailable.as_bool())
+                .map(|target| {
+                    (
+                        target.adapterId.LowPart,
+                        target.adapterId.HighPart,
+                        target.id,
+                    )
+                })
+                .collect();
+            targets.sort_unstable();
+            targets.dedup();
+            return targets.len();
+        }
+    }
+    unsafe { GetSystemMetrics(SM_CMONITORS) }.max(1) as usize
 }
 
 fn foreground_target() -> Option<HWND> {
