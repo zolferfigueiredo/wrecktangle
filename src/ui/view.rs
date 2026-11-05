@@ -55,6 +55,9 @@ pub struct Model {
     pub startup: bool,
     pub auto_update: bool,
     pub auto_install: bool,
+    pub block_windows_snap: bool,
+    /// Screens connected, active or not; Display mode needs two.
+    pub displays: usize,
     pub update_detail: String,
     pub update_available: bool,
     /// The update installs itself; otherwise its button opens the download.
@@ -95,6 +98,7 @@ pub enum Target {
     Startup,
     AutoUpdate,
     AutoInstall,
+    BlockSnap,
     CheckNow,
     Update,
     Link(Link),
@@ -506,6 +510,9 @@ const fn area(fx: f32, fy: f32, fw: f32, fh: f32) -> IconGlyph {
     IconGlyph::Area { fx, fy, fw, fh }
 }
 
+/// Display mode's row, shown only with two screens or once it has a shortcut.
+const DISPLAY_MODE_ROW: usize = 12;
+
 /// The Shortcuts page groups, as (title key, [(row index, icon)]). The row
 /// indices follow `Action::ALL`.
 const GROUPS: [(&str, &[(usize, IconGlyph)]); 4] = [
@@ -536,7 +543,7 @@ const GROUPS: [(&str, &[(usize, IconGlyph)]); 4] = [
         &[
             (10, IconGlyph::Next),
             (11, IconGlyph::Previous),
-            (12, IconGlyph::Project),
+            (DISPLAY_MODE_ROW, IconGlyph::DisplayMode),
         ],
     ),
 ];
@@ -550,15 +557,22 @@ fn shortcuts_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f
     y = b.snap.round(y + intro.h);
 
     let empty = Row::default();
+    let row = |index: usize| model.rows.get(index).unwrap_or(&empty);
     for (title, specs) in GROUPS {
+        let visible: Vec<(usize, IconGlyph)> = specs
+            .iter()
+            .copied()
+            .filter(|&(index, _)| {
+                index != DISPLAY_MODE_ROW || model.displays >= 2 || !row(index).keys.is_empty()
+            })
+            .collect();
         y = b.section_title(title, x, y + 8.0, w);
         y = b.card(x, y, w, |b, x, mut y, w| {
-            for (i, &(index, glyph)) in specs.iter().enumerate() {
+            for (i, &(index, glyph)) in visible.iter().enumerate() {
                 if i > 0 {
                     y = b.divider(x, y, w);
                 }
-                let row = model.rows.get(index).unwrap_or(&empty);
-                y += shortcut_row(b, index, glyph, row, x, y, w);
+                y += shortcut_row(b, index, glyph, row(index), x, y, w);
             }
             y
         });
@@ -779,6 +793,20 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
             &lang::t("general.auto_install"),
             &lang::t("general.auto_install_desc"),
             Trailing::Switch(Target::AutoInstall, model.auto_install),
+        )
+    });
+
+    y = b.section_title("group.windows_shortcuts", x, y + 16.0, w);
+    y = b.card(x, y, w, |b, x, y, w| {
+        y + setting_row(
+            b,
+            model,
+            x,
+            y,
+            w,
+            &lang::t("general.block_snap"),
+            &lang::t("general.block_snap_desc"),
+            Trailing::Switch(Target::BlockSnap, model.block_windows_snap),
         )
     });
 
@@ -1649,8 +1677,88 @@ mod tests {
                 })
                 .collect(),
             about_version: "Version 1.0.0".into(),
+            displays: 2,
             ..Model::default()
         }
+    }
+
+    fn dividers(layout: &Layout<String>) -> usize {
+        layout
+            .content
+            .iter()
+            .filter(|item| matches!(item, Item::Divider(_)))
+            .count()
+    }
+
+    #[test]
+    fn display_mode_row_hides_on_one_screen_without_a_shortcut() {
+        let index = display_mode_index();
+        let mut m = model();
+        m.rows[index].keys.clear();
+        let shown = lay(&m);
+        assert!(shown.has_target(Target::Pill(index)));
+
+        m.displays = 1;
+        let hidden = lay(&m);
+        assert!(!hidden.has_target(Target::Pill(index)));
+        assert!(hidden.has_target(Target::Pill(index - 1)));
+        // Its divider goes with it; Next and Previous keep theirs.
+        assert_eq!(dividers(&shown), dividers(&hidden) + 1);
+        assert!(hidden.content_height < shown.content_height);
+    }
+
+    #[test]
+    fn display_mode_row_shows_on_one_screen_when_it_has_a_shortcut() {
+        let index = display_mode_index();
+        let mut m = model();
+        m.displays = 1;
+        assert!(!m.rows[index].keys.is_empty());
+        assert!(lay(&m).has_target(Target::Pill(index)));
+    }
+
+    #[test]
+    fn block_snap_switch_has_its_own_section_after_app() {
+        let mut m = model();
+        m.page = Page::General;
+        let layout = lay(&m);
+        let order = layout.focus_order();
+        let at = |t: Target| order.iter().position(|o| o.0 == t).expect("target");
+        assert_eq!(at(Target::BlockSnap), at(Target::AutoInstall) + 1);
+        assert_eq!(at(Target::Size(0)), at(Target::BlockSnap) + 1);
+
+        let title = lang::t("group.windows_shortcuts");
+        let title_y = layout
+            .content
+            .iter()
+            .find_map(|item| match item {
+                Item::Text { text, y, .. } if *text == title => Some(*y),
+                _ => None,
+            })
+            .expect("section title");
+        let rect = |t: Target| layout.content_rect(t).expect("rect");
+        assert!(rect(Target::AutoInstall).bottom() < title_y);
+        assert!(title_y < rect(Target::BlockSnap).y);
+    }
+
+    #[test]
+    fn block_snap_switch_follows_the_model() {
+        let mut m = model();
+        m.page = Page::General;
+        let switch_on = |m: &Model| {
+            lay(m).content.iter().any(|item| {
+                matches!(
+                    item,
+                    Item::Switch {
+                        target: Target::BlockSnap,
+                        on: true,
+                        ..
+                    }
+                )
+            })
+        };
+        assert!(!switch_on(&m));
+        m.block_windows_snap = true;
+        assert!(switch_on(&m));
     }
 
     fn lay(model: &Model) -> Layout<String> {
@@ -1722,28 +1830,28 @@ mod tests {
         assert_eq!(pills, (0..Action::ALL.len()).collect::<Vec<_>>());
     }
 
-    fn project_index() -> usize {
+    fn display_mode_index() -> usize {
         Action::ALL
             .iter()
-            .position(|a| *a == Action::Project)
-            .expect("project action")
+            .position(|a| *a == Action::DisplayMode)
+            .expect("display mode action")
     }
 
     #[test]
-    fn project_row_closes_the_displays_group_with_the_two_screens_icon() {
+    fn display_mode_row_closes_the_displays_group_with_the_two_screens_icon() {
         let (_, displays) = GROUPS
             .iter()
             .find(|(title, _)| *title == "group.displays")
             .expect("displays group");
         assert_eq!(
             displays.last(),
-            Some(&(project_index(), IconGlyph::Project))
+            Some(&(display_mode_index(), IconGlyph::DisplayMode))
         );
     }
 
     #[test]
-    fn project_row_can_be_recorded_and_cleared() {
-        let index = project_index();
+    fn display_mode_row_can_be_recorded_and_cleared() {
+        let index = display_mode_index();
         let mut m = model();
         m.rows[index].keys.clear();
         let layout = lay(&m);
@@ -1760,7 +1868,7 @@ mod tests {
     }
 
     #[test]
-    fn project_icon_paints_two_accent_screens() {
+    fn display_mode_icon_paints_two_accent_screens() {
         let layout = lay(&model());
         let palette = palette(Mode::Light, false, None);
         let ops = paint(
@@ -1770,7 +1878,7 @@ mod tests {
             &palette,
             Snap::new(1.0),
         );
-        let geometry = layout_icon(IconGlyph::Project, 1.0);
+        let geometry = layout_icon(IconGlyph::DisplayMode, 1.0);
         let IconShape::Pair(screens) = geometry.shape else {
             panic!("expected two screens");
         };
@@ -1783,7 +1891,7 @@ mod tests {
                 }
                 _ => None,
             })
-            .expect("project icon");
+            .expect("display mode icon");
         for screen in screens {
             let expected = screen.offset(x, y);
             assert!(

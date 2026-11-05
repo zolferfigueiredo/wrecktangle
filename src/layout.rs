@@ -55,7 +55,7 @@ pub enum Action {
     NextDisplay,
     PreviousDisplay,
     /// Opens the Windows Project menu, the one Win+P opens.
-    Project,
+    DisplayMode,
 }
 
 impl Action {
@@ -72,7 +72,7 @@ impl Action {
         Action::Center,
         Action::NextDisplay,
         Action::PreviousDisplay,
-        Action::Project,
+        Action::DisplayMode,
     ];
 
     pub fn key(&self) -> &'static str {
@@ -89,7 +89,7 @@ impl Action {
             Action::Center => "action.center",
             Action::NextDisplay => "action.next_display",
             Action::PreviousDisplay => "action.previous_display",
-            Action::Project => "action.project",
+            Action::DisplayMode => "action.display_mode",
         }
     }
 }
@@ -108,7 +108,7 @@ fn anchors(action: Action) -> (bool, bool) {
         | Action::Center
         | Action::NextDisplay
         | Action::PreviousDisplay
-        | Action::Project => (false, false),
+        | Action::DisplayMode => (false, false),
     }
 }
 
@@ -127,7 +127,7 @@ fn position_for(action: Action, w: i32, h: i32, work: Rect) -> Rect {
     Rect { x, y, w, h }
 }
 
-// Maximize, Center, the display moves and Project are handled by the caller,
+// Maximize, Center, the display moves and Display mode are handled by the caller,
 // not by a fraction of the work area; this returns the work area unchanged
 // for them.
 pub fn compute(action: Action, fraction: f64, work: Rect) -> Rect {
@@ -154,7 +154,7 @@ pub fn compute(action: Action, fraction: f64, work: Rect) -> Rect {
         | Action::Center
         | Action::NextDisplay
         | Action::PreviousDisplay
-        | Action::Project => work,
+        | Action::DisplayMode => work,
     }
 }
 
@@ -256,14 +256,14 @@ mod tests {
     }
 
     #[test]
-    fn project_follows_the_display_moves() {
-        assert_eq!(Action::ALL.last(), Some(&Action::Project));
-        assert_eq!(Action::Project.key(), "action.project");
+    fn display_mode_follows_the_display_moves() {
+        assert_eq!(Action::ALL.last(), Some(&Action::DisplayMode));
+        assert_eq!(Action::DisplayMode.key(), "action.display_mode");
     }
 
     #[test]
-    fn project_leaves_the_work_area_alone() {
-        assert_eq!(compute(Action::Project, 0.5, MONITOR_1), MONITOR_1);
+    fn display_mode_leaves_the_work_area_alone() {
+        assert_eq!(compute(Action::DisplayMode, 0.5, MONITOR_1), MONITOR_1);
     }
 
     const MONITOR_0: Rect = Rect {

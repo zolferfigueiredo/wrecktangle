@@ -21,7 +21,7 @@ use crate::config::{self, Config};
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
 use crate::ui::view::{Page, Row, SizeOption};
-use crate::{app, lang, startup, takeover, update};
+use crate::{app, lang, startup, takeover, update, window_ops};
 
 const MOD_BIT_CTRL: isize = 0x1;
 const MOD_BIT_ALT: isize = 0x2;
@@ -49,6 +49,7 @@ enum Command {
     SetStartup(bool),
     SetAutoUpdate(bool),
     SetAutoInstall(bool),
+    SetBlockSnap(bool),
     CheckNow,
     Update,
     OpenUrl(&'static str),
@@ -114,6 +115,13 @@ fn run(command: Command) {
             let enabled = update::auto_install_enabled();
             window::update(|m| m.auto_install = enabled);
         }
+        Command::SetBlockSnap(on) => {
+            let mut config = app::current_config();
+            config.block_windows_snap = on;
+            commit(config);
+            let on = app::current_config().block_windows_snap;
+            window::update(|m| m.block_windows_snap = on);
+        }
         Command::CheckNow => {
             update::check_now();
             on_update_state_changed();
@@ -134,9 +142,12 @@ fn refresh_all() {
     let auto_update = update::auto_enabled();
     let auto_install = update::auto_install_enabled();
     let language = lang::current_index();
-    let wrecktangle_colors = app::current_config().wrecktangle_colors;
+    let config = app::current_config();
+    let displays = window_ops::connected_display_count();
     window::update(|m| {
-        m.wrecktangle_colors = wrecktangle_colors;
+        m.wrecktangle_colors = config.wrecktangle_colors;
+        m.block_windows_snap = config.block_windows_snap;
+        m.displays = displays;
         m.startup = startup;
         m.auto_update = auto_update;
         m.auto_install = auto_install;
@@ -144,6 +155,12 @@ fn refresh_all() {
     });
     show_update_state();
     refresh_rows();
+}
+
+/// Screens were connected or removed; Display mode's row follows.
+fn show_displays() {
+    let displays = window_ops::connected_display_count();
+    window::update(|m| m.displays = displays);
 }
 
 fn set_language(index: usize) {

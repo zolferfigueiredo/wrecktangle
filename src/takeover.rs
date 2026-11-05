@@ -19,6 +19,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_SYSKEYUP,
 };
 
+use crate::config::Shortcuts;
 use crate::layout::Action;
 use crate::shortcut::Shortcut;
 
@@ -162,7 +163,7 @@ impl ModKeys {
     }
 }
 
-/// Where the Project shortcut's relay to a held Win+P stands. `released`
+/// Where the Display mode shortcut's relay to a held Win+P stands. `released`
 /// holds the modifiers the user still has down but Windows sees as up.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Relay {
@@ -228,16 +229,15 @@ pub fn relay_step(
                 };
                 return (next, true, vec![p]);
             }
-            let lifted = released.contains(event.vk);
-            if lifted && !event.up {
-                return (state, true, Vec::new());
-            }
             // Releasing a lifted modifier picks the highlighted option. Any
             // other key ends the cycle first, so it does not arrive as Win+key.
+            // That includes a lifted modifier going down: modifiers stop
+            // auto-repeating once the chord key is pressed, so it is a new
+            // press after a key-up the hook missed.
+            let lifted = released.contains(event.vk);
+            released.remove(event.vk);
             let mut inject = relay_end(state);
-            if lifted {
-                released.remove(event.vk);
-            } else {
+            if !(lifted && event.up) {
                 inject.push(event);
             }
             (drain(key_down.then_some(key), released), true, inject)
@@ -247,13 +247,11 @@ pub fn relay_step(
                 let key = if event.up { None } else { key };
                 return (drain(key, released), true, Vec::new());
             }
-            if !released.contains(event.vk) {
-                return (state, false, Vec::new());
-            }
-            if event.up {
-                released.remove(event.vk);
-            }
-            (drain(key, released), true, Vec::new())
+            let lifted = released.contains(event.vk);
+            released.remove(event.vk);
+            // Only a lifted modifier's release is swallowed; a new press of one
+            // means its release was missed, and it is down for Windows again.
+            (drain(key, released), lifted && event.up, Vec::new())
         }
     }
 }
@@ -281,9 +279,37 @@ pub fn relay_end(state: Relay) -> Vec<KeyStroke> {
     }
 }
 
+/// Windows' own Win+Arrow and Win+Shift+Arrow chords, which snap, maximize,
+/// minimize and move windows between screens.
+pub fn snap_chords() -> [Shortcut; 8] {
+    // Left, Right, Up and Down; the second four with Shift.
+    const ARROWS: [u16; 4] = [0x25, 0x27, 0x26, 0x28];
+    std::array::from_fn(|i| Shortcut {
+        ctrl: false,
+        alt: false,
+        shift: i >= ARROWS.len(),
+        win: true,
+        vk: ARROWS[i % ARROWS.len()],
+    })
+}
+
+/// The snap chords the hook swallows: none while the switch is off, and never
+/// one that runs a Wrecktangle action, so a registered hotkey still fires.
+pub fn blocked_chords(shortcuts: &Shortcuts, on: bool) -> Vec<Shortcut> {
+    if !on {
+        return Vec::new();
+    }
+    let used = shortcuts.entries();
+    snap_chords()
+        .into_iter()
+        .filter(|chord| !used.iter().any(|(_, sc)| *sc == Some(*chord)))
+        .collect()
+}
+
 #[cfg(windows)]
 thread_local! {
     static ENTRIES: RefCell<Vec<(Action, Shortcut)>> = const { RefCell::new(Vec::new()) };
+    static BLOCKED: RefCell<Vec<Shortcut>> = const { RefCell::new(Vec::new()) };
     static TARGET: Cell<Option<HWND>> = const { Cell::new(None) };
     static HOOK: Cell<Option<HHOOK>> = const { Cell::new(None) };
     static HELD: Cell<Option<u16>> = const { Cell::new(None) };
@@ -291,18 +317,30 @@ thread_local! {
     static RELAY_STATE: Cell<Relay> = const { Cell::new(Relay::Idle) };
 }
 
-/// Routes `entries` through the global hook, and `relay` (the Project
-/// shortcut) as a held Win+P, installing the hook if needed, or removing it
-/// when there is nothing to take over. Returns false when the hook could not
-/// be installed.
+/// What the hook takes over.
 #[cfg(windows)]
-pub fn start(hwnd: HWND, entries: &[(Action, Shortcut)], relay: Option<Shortcut>) -> bool {
+pub struct Chords {
+    /// Chords that run an action.
+    pub entries: Vec<(Action, Shortcut)>,
+    /// The Display mode chord, relayed as a held Win+P.
+    pub relay: Option<Shortcut>,
+    /// Chords swallowed without running anything.
+    pub blocked: Vec<Shortcut>,
+}
+
+/// Routes `chords` through the global hook, installing it if needed, or
+/// removing it when there is nothing to take over. Returns false when the
+/// hook could not be installed.
+#[cfg(windows)]
+pub fn start(hwnd: HWND, chords: Chords) -> bool {
     end_relay();
-    ENTRIES.with(|e| *e.borrow_mut() = entries.to_vec());
-    RELAY.with(|r| r.set(relay));
+    let idle = chords.entries.is_empty() && chords.relay.is_none() && chords.blocked.is_empty();
+    ENTRIES.with(|e| *e.borrow_mut() = chords.entries);
+    BLOCKED.with(|b| *b.borrow_mut() = chords.blocked);
+    RELAY.with(|r| r.set(chords.relay));
     TARGET.with(|t| t.set(Some(hwnd)));
     HELD.with(|h| h.set(None));
-    if entries.is_empty() && relay.is_none() {
+    if idle {
         remove_hook();
         return true;
     }
@@ -320,6 +358,7 @@ pub fn stop() {
     remove_hook();
     end_relay();
     ENTRIES.with(|e| e.borrow_mut().clear());
+    BLOCKED.with(|b| b.borrow_mut().clear());
     RELAY.with(|r| r.set(None));
     HELD.with(|h| h.set(None));
 }
@@ -513,7 +552,15 @@ fn on_key(wparam: WPARAM, lparam: LPARAM) -> bool {
                 .map(|(action, _)| *action)
         })
     });
-    let (Some(action), Some(mods)) = (hit, mods) else {
+    let blocked = hit.is_none()
+        && BLOCKED.with(|b| {
+            b.try_borrow().is_ok_and(|blocked| {
+                blocked
+                    .iter()
+                    .any(|sc| sc.vk == vk && matches(sc, *mods.get_or_insert_with(read_mods), vk))
+            })
+        });
+    let Some(mods) = mods.filter(|_| hit.is_some() || blocked) else {
         return false;
     };
 
@@ -521,7 +568,7 @@ fn on_key(wparam: WPARAM, lparam: LPARAM) -> bool {
     if mods.win() || mods.alt {
         inject_dummy_key();
     }
-    if let Some(hwnd) = TARGET.with(|t| t.get()) {
+    if let (Some(action), Some(hwnd)) = (hit, TARGET.with(|t| t.get())) {
         unsafe {
             let _ = PostMessageW(
                 Some(hwnd),
@@ -744,16 +791,57 @@ mod tests {
     }
 
     #[test]
-    fn relay_swallows_repeats_of_the_lifted_modifiers() {
+    fn a_lifted_modifier_pressed_again_mid_cycle_ends_the_cycle() {
+        // Modifiers stop auto-repeating once the chord key is pressed, so a
+        // key-down of one means its key-up was missed: a new press.
         let (state, steps) = run(
             "Ctrl+Alt+F9",
             &[key::LCTRL, key::LALT],
             Relay::Idle,
-            &[down(F9), up(F9), down(key::LCTRL), down(key::LALT)],
+            &[
+                down(F9),
+                up(F9),
+                down(key::LCTRL),
+                up(key::LCTRL),
+                up(key::LALT),
+            ],
         );
+        assert_eq!(steps[2], (true, vec![up(key::LWIN), down(key::LCTRL)]));
+        assert_eq!(steps[3], (false, vec![]));
+        assert_eq!(steps[4], (true, vec![]));
+        assert_eq!(state, Relay::Idle);
+    }
+
+    #[test]
+    fn a_lifted_modifier_pressed_with_the_chord_key_down_lets_go_of_p_too() {
+        let (_, steps) = run(
+            "Ctrl+Alt+F9",
+            &[key::LCTRL, key::LALT],
+            Relay::Idle,
+            &[down(F9), down(key::LALT)],
+        );
+        assert_eq!(
+            steps[1],
+            (true, vec![up(VK_P), up(key::LWIN), down(key::LALT)])
+        );
+    }
+
+    #[test]
+    fn draining_passes_a_new_press_of_a_lifted_modifier() {
+        let start = Relay::Draining {
+            key: None,
+            released: held(&[key::LCTRL, key::LALT]),
+        };
+        let (state, steps) = run(
+            "Ctrl+Alt+Win+Space",
+            &[],
+            start,
+            &[down(key::LCTRL), up(key::LCTRL), up(key::LALT)],
+        );
+        assert_eq!(steps[0], (false, vec![]));
+        assert_eq!(steps[1], (false, vec![]));
         assert_eq!(steps[2], (true, vec![]));
-        assert_eq!(steps[3], (true, vec![]));
-        assert!(matches!(state, Relay::Relaying { .. }));
+        assert_eq!(state, Relay::Idle);
     }
 
     #[test]
@@ -790,10 +878,10 @@ mod tests {
     }
 
     #[test]
-    fn draining_swallows_only_the_lifted_modifiers() {
+    fn draining_swallows_only_the_releases_of_lifted_modifiers() {
         let start = Relay::Draining {
             key: None,
-            released: held(&[key::LCTRL]),
+            released: held(&[key::LCTRL, key::LALT]),
         };
         let (state, steps) = run(
             "Ctrl+Alt+F9",
@@ -801,15 +889,17 @@ mod tests {
             start,
             &[
                 down(key::RSHIFT),
-                down(key::LCTRL),
+                up(key::RSHIFT),
                 up(key::LCTRL),
+                up(key::LALT),
                 down(key::LCTRL),
             ],
         );
         assert_eq!(steps[0], (false, vec![]));
-        assert_eq!(steps[1], (true, vec![]));
+        assert_eq!(steps[1], (false, vec![]));
         assert_eq!(steps[2], (true, vec![]));
-        assert_eq!(steps[3], (false, vec![]));
+        assert_eq!(steps[3], (true, vec![]));
+        assert_eq!(steps[4], (false, vec![]));
         assert_eq!(state, Relay::Idle);
     }
 
@@ -898,6 +988,55 @@ mod tests {
         let keys = held(&[key::LCTRL, key::RSHIFT]);
         assert_eq!(keys.iter().collect::<Vec<_>>(), [key::LCTRL, key::RSHIFT]);
         assert!(keys.contains(key::LCTRL) && !keys.contains(key::RCTRL));
+    }
+
+    fn chords(list: &[&str]) -> Vec<Shortcut> {
+        list.iter().map(|s| parse(s).unwrap()).collect()
+    }
+
+    #[test]
+    fn snap_chords_are_win_and_win_shift_with_each_arrow() {
+        assert_eq!(
+            snap_chords().to_vec(),
+            chords(&[
+                "Win+Left",
+                "Win+Right",
+                "Win+Up",
+                "Win+Down",
+                "Win+Shift+Left",
+                "Win+Shift+Right",
+                "Win+Shift+Up",
+                "Win+Shift+Down",
+            ])
+        );
+        for other in ["Win+Z", "Ctrl+Win+Left", "Alt+Win+Up", "Ctrl+Alt+Left"] {
+            assert!(!snap_chords().contains(&parse(other).unwrap()), "{other}");
+        }
+    }
+
+    #[test]
+    fn nothing_is_blocked_while_the_switch_is_off() {
+        let shortcuts = crate::config::Config::defaults().shortcuts;
+        assert!(blocked_chords(&shortcuts, false).is_empty());
+        assert_eq!(blocked_chords(&shortcuts, true), snap_chords().to_vec());
+    }
+
+    #[test]
+    fn blocked_chords_leave_out_the_ones_an_action_uses() {
+        let mut shortcuts = crate::config::Config::defaults().shortcuts;
+        shortcuts.set(Action::Left, parse("Win+Left").ok());
+        shortcuts.set(Action::DisplayMode, parse("Win+Shift+Up").ok());
+        assert_eq!(
+            blocked_chords(&shortcuts, true),
+            chords(&[
+                "Win+Right",
+                "Win+Up",
+                "Win+Down",
+                "Win+Shift+Left",
+                "Win+Shift+Right",
+                "Win+Shift+Down",
+            ])
+        );
     }
 
     #[test]

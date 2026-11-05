@@ -30,10 +30,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
     SWP_NOZORDER, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetCursor, SetForegroundWindow,
     SetWindowPos, SetWindowTextW, ShowWindow, SystemParametersInfoW, TPM_LEFTALIGN, TPM_RETURNCMD,
     TPM_TOPALIGN, TPM_VERTICAL, TPMPARAMS, TrackPopupMenuEx, WA_INACTIVE, WHEEL_DELTA,
-    WINDOW_EX_STYLE, WM_ACTIVATE, WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DPICHANGED,
-    WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE,
-    WM_MOUSEWHEEL, WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOMMAND, WNDCLASSEXW,
-    WS_OVERLAPPEDWINDOW,
+    WINDOW_EX_STYLE, WM_ACTIVATE, WM_CAPTURECHANGED, WM_CLOSE, WM_DESTROY, WM_DISPLAYCHANGE,
+    WM_DPICHANGED, WM_ERASEBKGND, WM_GETMINMAXINFO, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_PAINT, WM_SETCURSOR, WM_SETTINGCHANGE, WM_SIZE, WM_SYSCOMMAND,
+    WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
 };
 use windows::core::{Error, PCWSTR, Result, w};
 
@@ -484,6 +484,7 @@ impl Window {
             Target::Startup => Command::SetStartup(!self.model.startup),
             Target::AutoUpdate => Command::SetAutoUpdate(!self.model.auto_update),
             Target::AutoInstall => Command::SetAutoInstall(!self.model.auto_install),
+            Target::BlockSnap => Command::SetBlockSnap(!self.model.block_windows_snap),
             Target::CheckNow => Command::CheckNow,
             Target::Update => Command::Update,
             Target::Link(link) => Command::OpenUrl(link.url()),
@@ -870,6 +871,10 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             if theme::is_immersive_color_set_change(lparam) {
                 retheme(hwnd);
             }
+            unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+        }
+        WM_DISPLAYCHANGE => {
+            super::show_displays();
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
         // Destroyed rather than hidden: its Direct2D device and swap chain

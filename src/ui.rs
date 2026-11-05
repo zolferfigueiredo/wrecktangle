@@ -96,7 +96,7 @@ pub enum IconGlyph {
     Next,
     Previous,
     /// Two screens side by side.
-    Project,
+    DisplayMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -155,7 +155,7 @@ pub fn layout_icon(glyph: IconGlyph, scale: f32) -> IconGeometry {
             };
             IconShape::Chevron([(tail, y), (tip, y + chevron_h / 2.0), (tail, y + chevron_h)])
         }
-        IconGlyph::Project => {
+        IconGlyph::DisplayMode => {
             let screen_w = even(cw * 0.36);
             let screen_h = even(ch * 0.43);
             let gap = even(cw * 0.1).max(2.0);
@@ -370,9 +370,9 @@ mod tests {
     }
 
     #[test]
-    fn project_icon_is_two_equal_screens_centered_on_whole_pixels() {
+    fn display_mode_icon_is_two_equal_screens_centered_on_whole_pixels() {
         for scale in SCALES {
-            let g = layout_icon(IconGlyph::Project, scale);
+            let g = layout_icon(IconGlyph::DisplayMode, scale);
             let IconShape::Pair([left, right]) = g.shape else {
                 panic!("expected two screens");
             };

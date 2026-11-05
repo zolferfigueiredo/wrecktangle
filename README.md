@@ -65,10 +65,15 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
   1/2, 2/3 and 3/4 of the screen by default, or any mix of 1/4, 1/3, 1/2, 2/3
   and 3/4.
 - **Every monitor.** Move a window to the next or previous display with a
-  shortcut. **Project (Win+P)** gives the Windows Project menu a second
+  shortcut. **Display mode** gives the Windows Project menu (Win+P) a second
   shortcut of your choice that works like Win+P: keep its modifiers held and
   press the key again to move through the options, then let go of the
-  modifiers to pick one. It has no shortcut until you set one.
+  modifiers to pick one. Its row appears once 2 or more screens are connected,
+  and it has no shortcut until you set one.
+- **Can quiet Windows' Win+Arrow keys.** Turn on **Block Windows' Win+Arrow
+  keys** in Settings and Win+Arrow and Win+Shift+Arrow stop snapping,
+  maximizing, minimizing and moving windows. Shortcuts you set on those keys
+  still work, and Win+Z is left alone.
 - **Lines up exactly.** Sizes use the window's visible frame, so snapped windows
   meet edge to edge without the gap Windows' invisible resize border leaves.
 - **Takes over busy shortcuts.** When Windows or another app already owns a
@@ -107,7 +112,7 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
 | Center | Ctrl+Alt+Home |
 | Next display | Ctrl+Alt+Win+Right |
 | Previous display | Ctrl+Alt+Win+Left |
-| Project (Win+P) | Not set |
+| Display mode | Not set |
 
 Every shortcut can be changed in Settings, from the tray icon.
 
@@ -123,9 +128,11 @@ While the hook is on, the taken-over chord triggers Wrecktangle's action and is
 hidden from the owner and from the focused app. Settings shows the status as
 "Overrides <app>".
 
-The hook is also on while **Project (Win+P)** has a shortcut. It turns that
+The hook is also on while **Display mode** has a shortcut. It turns that
 chord into a held Win+P for as long as its modifiers stay down, which is what
-lets repeated presses move through the menu.
+lets repeated presses move through the menu. And it is on while **Block
+Windows' Win+Arrow keys** is, to swallow those chords before Windows acts on
+them.
 
 - Win+L and Ctrl+Alt+Del are handled by Windows below the hook, so they
   cannot be taken over. Settings shows "Reserved by Windows" for them.
@@ -161,7 +168,8 @@ App section of Settings. The tray menu's "Check for updates..." and the
 
 Settings are stored at `%APPDATA%\Wrecktangle\config.json`. It holds the size
 cycle, the shortcut assigned to each action, `language` (a two letter code),
-`wrecktangle_colors` (default `false`), `check_updates` (default `true`) and
+`wrecktangle_colors` (default `false`), `block_windows_snap` (default
+`false`), `check_updates` (default `true`) and
 `last_update_check` (a Unix time in seconds, maintained by Wrecktangle).
 
 Edit it through the Settings window; a hand-edited file that fails to parse
@@ -175,10 +183,11 @@ change something in Settings.
 - **Admin windows.** Windows running as administrator cannot be moved by a
   non-elevated Wrecktangle, because of UIPI. Wrecktangle detects this up front
   and shows a one-time notification instead of failing silently.
-- **Project with an admin window focused.** Windows keeps the keyboard hook
-  from seeing keys while an administrator window has focus, so the
-  **Project (Win+P)** shortcut only opens the menu then, and pressing it again
-  does not move through the options.
+- **Display mode with an admin window focused.** Windows keeps the keyboard
+  hook from seeing keys while an administrator window has focus, so the
+  **Display mode** shortcut only opens the menu then, and pressing it again
+  does not move through the options. Blocked Win+Arrow keys work as usual
+  there too.
 - **AltGr note.** On a US-International keyboard layout, Ctrl+Alt+<key> is
   the same key chord as AltGr+<key>. Assigning a shortcut that way can block
   typing that key's AltGr character anywhere else. The Settings window flags
