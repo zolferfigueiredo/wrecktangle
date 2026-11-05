@@ -288,7 +288,9 @@ fn failed_message(failed: &[Action]) -> String {
 // Copies out what to register before calling RegisterHotKey, and only takes
 // the borrow again afterward to store the results, per the re-entrancy rule.
 // Shortcuts RegisterHotKey refuses go to the takeover hook; the returned
-// actions are the ones that still do not work.
+// actions are the ones that still do not work. Project's shortcut always
+// goes to the hook too, which relays it as a held Win+P and swallows it, so
+// its registered hotkey only fires when the hook is not seeing keys.
 fn register_all(hwnd: HWND) -> Vec<Action> {
     let entries: Vec<(i32, Action, Shortcut)> = STATE.with(|s| {
         let st = s.borrow();
@@ -305,6 +307,12 @@ fn register_all(hwnd: HWND) -> Vec<Action> {
             .collect()
     });
 
+    let relay = entries
+        .iter()
+        .find(|(_, action, _)| *action == Action::Project)
+        .map(|(_, _, sc)| *sc)
+        .filter(|sc| !takeover::is_reserved(sc));
+
     let mut hotkeys = HashMap::new();
     let mut refused: Vec<(Action, Shortcut)> = Vec::new();
     for (id, action, sc) in entries {
@@ -319,10 +327,10 @@ fn register_all(hwnd: HWND) -> Vec<Action> {
 
     let hookable: Vec<(Action, Shortcut)> = refused
         .iter()
-        .filter(|(_, sc)| !takeover::is_reserved(sc))
+        .filter(|(action, sc)| *action != Action::Project && !takeover::is_reserved(sc))
         .copied()
         .collect();
-    let hooked = takeover::start(hwnd, &hookable);
+    let hooked = takeover::start(hwnd, &hookable, relay);
 
     let mut claims = HashMap::new();
     let mut unavailable = Vec::new();

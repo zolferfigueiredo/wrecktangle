@@ -346,10 +346,10 @@ extern "system" fn keyboard_hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM)
         let is_keydown = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
         let is_keyup = msg == WM_KEYUP || msg == WM_SYSKEYUP;
         let vk = kb.vkCode as u16;
-        let is_our_dummy =
-            kb.flags.contains(LLKHF_INJECTED) && kb.dwExtraInfo == takeover::DUMMY_KEY_MAGIC;
+        let is_our_input =
+            kb.flags.contains(LLKHF_INJECTED) && kb.dwExtraInfo == takeover::OWN_INPUT_MAGIC;
 
-        if !is_our_dummy && !takeover::is_modifier_vk(vk) {
+        if !is_our_input && !takeover::is_modifier_vk(vk) {
             let phase = HOOK_PHASE.with(|p| p.get());
             match phase {
                 HookPhase::Idle => {}

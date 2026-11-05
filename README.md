@@ -65,8 +65,10 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
   1/2, 2/3 and 3/4 of the screen by default, or any mix of 1/4, 1/3, 1/2, 2/3
   and 3/4.
 - **Every monitor.** Move a window to the next or previous display with a
-  shortcut. **Project (Win+P)** opens the Windows Project menu from a second
-  shortcut of your choice; it has none until you set one.
+  shortcut. **Project (Win+P)** gives the Windows Project menu a second
+  shortcut of your choice that works like Win+P: keep its modifiers held and
+  press the key again to move through the options, then let go of the
+  modifiers to pick one. It has no shortcut until you set one.
 - **Lines up exactly.** Sizes use the window's visible frame, so snapped windows
   meet edge to edge without the gap Windows' invisible resize border leaves.
 - **Takes over busy shortcuts.** When Windows or another app already owns a
@@ -121,6 +123,10 @@ While the hook is on, the taken-over chord triggers Wrecktangle's action and is
 hidden from the owner and from the focused app. Settings shows the status as
 "Overrides <app>".
 
+The hook is also on while **Project (Win+P)** has a shortcut. It turns that
+chord into a held Win+P for as long as its modifiers stay down, which is what
+lets repeated presses move through the menu.
+
 - Win+L and Ctrl+Alt+Del are handled by Windows below the hook, so they
   cannot be taken over. Settings shows "Reserved by Windows" for them.
 - The owner name comes from the other app's own hotkey settings (PowerToys,
@@ -169,6 +175,10 @@ change something in Settings.
 - **Admin windows.** Windows running as administrator cannot be moved by a
   non-elevated Wrecktangle, because of UIPI. Wrecktangle detects this up front
   and shows a one-time notification instead of failing silently.
+- **Project with an admin window focused.** Windows keeps the keyboard hook
+  from seeing keys while an administrator window has focus, so the
+  **Project (Win+P)** shortcut only opens the menu then, and pressing it again
+  does not move through the options.
 - **AltGr note.** On a US-International keyboard layout, Ctrl+Alt+<key> is
   the same key chord as AltGr+<key>. Assigning a shortcut that way can block
   typing that key's AltGr character anywhere else. The Settings window flags

@@ -72,8 +72,10 @@ pub fn apply_action(action: Action, config: &Config) -> ActionResult {
     }
 }
 
-// The menu Win+P opens. Opening it by URI rather than sending Win+P keeps
-// the trigger's own held modifiers out of the chord.
+// Opens the menu Win+P opens, without cycling through it. The takeover hook
+// normally relays the Project shortcut as a held Win+P; this is the fallback
+// for when the hook is not seeing keys (it failed to install, or an elevated
+// window has focus).
 fn open_project_menu() -> ActionResult {
     let result = unsafe {
         ShellExecuteW(
