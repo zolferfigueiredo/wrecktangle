@@ -58,22 +58,30 @@ instead. Uninstall it from Apps in Windows Settings.
 
 Wrecktangle runs on Linux desktops that use X11, and is tested on Xfce
 (Linux Mint 22). Wayland is not supported: it doesn't let one app move
-another app's windows. There is no download for Linux yet; the install
-script builds it from source.
+another app's windows. Every release has packages for 64-bit PCs (`x86_64`,
+`amd64`) and for ARM64 (`aarch64`, `arm64`). Take the one for your system
+from the [releases](https://github.com/zolferfigueiredo/wrecktangle/releases):
 
-1. Install Rust with [rustup](https://rustup.rs), then clone this repository.
-2. Run the install script. It builds Wrecktangle, puts it in `~/.local/bin`,
-   adds it to the menu and starts it:
+| System | File | Install it with |
+| --- | --- | --- |
+| Debian, Ubuntu, Linux Mint | `Wrecktangle-<version>-amd64.deb` | `sudo apt install ./Wrecktangle-<version>-amd64.deb` |
+| Fedora, openSUSE | `Wrecktangle-<version>-x86_64.rpm` | `sudo dnf install ./Wrecktangle-<version>-x86_64.rpm`, or `zypper install` |
+| Any other | `Wrecktangle-<version>-x86_64.AppImage` | `chmod +x` it, then run it |
+| Any, without root | `Wrecktangle-<version>-x86_64-linux.tar.gz` | unpack it, then run `./install.sh` (installs into `~/.local`) |
 
-   ```sh
-   ./scripts/install-linux.sh
-   ```
+Then start **Wrecktangle** from the menu, open **Settings…** from its tray
+icon and turn on **Launch at startup**. To update, install the newer file
+the same way; Wrecktangle tells you when there is one.
 
-3. Open **Settings…** from the tray icon and turn on **Launch at startup**.
+To uninstall, run `sudo apt remove wrecktangle` or `sudo dnf remove
+wrecktangle`; a running copy quits first and puts back the Xfce shortcuts it
+took over. For the `.tar.gz`, run its `./uninstall.sh`. For the AppImage,
+turn off **Launch at startup**, quit it from the tray and delete the file.
+Your settings stay in `~/.config/wrecktangle`.
 
-Run the script again to update. `./scripts/uninstall-linux.sh` removes it
-and puts back the Xfce shortcuts it took over; your settings stay in
-`~/.config/wrecktangle`.
+To build it from source instead, install Rust with
+[rustup](https://rustup.rs), clone this repository and run
+`./scripts/install-linux.sh`; `./scripts/uninstall-linux.sh` removes it.
 
 Xfce already uses some of the default shortcuts, such as Ctrl+Alt+Left for
 switching workspaces. Wrecktangle takes those over while it runs: it turns
@@ -320,8 +328,14 @@ Inno Setup installer, and publishes a GitHub release named
   (64-bit)
 - `Wrecktangle-<version>-x86-setup.exe` and `Wrecktangle-<version>-x86.zip`
   (32-bit)
-- `SHA256SUMS` for all four, and `latest.json` with the version and the
-  zips' SHA-256
+- for Linux, built on Ubuntu runners for both architectures from one
+  staged tree (`packaging/linux/stage.sh`): `Wrecktangle-<version>-amd64.deb`
+  and `Wrecktangle-<version>-x86_64.rpm` (made with nfpm from
+  `packaging/linux/nfpm.yaml`), `Wrecktangle-<version>-x86_64.AppImage`
+  (appimagetool) and `Wrecktangle-<version>-x86_64-linux.tar.gz`, and the
+  same four for `arm64` and `aarch64`
+- `SHA256SUMS` for every file, and `latest.json` with the version and the
+  Windows zips' SHA-256
 
 Running the workflow by hand, or a pull request that changes it or
 `installer/`, builds the same files without publishing and uploads them as a
