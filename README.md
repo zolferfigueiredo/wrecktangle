@@ -7,15 +7,15 @@
 <h3 align="center">Snap windows from the keyboard.</h3>
 
 <p align="center">
-  A Rectangle-style window manager for Windows and Linux (X11), written in Rust.<br>
+  A Rectangle-style window manager for Windows and Linux (X11, tested on Xfce), written in Rust.<br>
   Send the focused window to a half, a corner or the center with one shortcut, and press it again to change its size.
 </p>
 
 <p align="center">
-  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.8.0-blue" alt="Latest release"></a>
+  <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.9.0-blue" alt="Latest release"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024%20edition-orange" alt="Rust 2024 edition"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x86%20%7C%20x64)-blue" alt="Windows 10 or 11, 32-bit or 64-bit">
-  <img src="https://img.shields.io/badge/Platform-Linux%20(X11)-blue" alt="Linux with X11">
+  <img src="https://img.shields.io/badge/Platform-Linux%20(X11%2C%20Xfce)-blue" alt="Linux with X11, tested on Xfce">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT license"></a>
   <a href="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml"><img src="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
@@ -34,7 +34,9 @@
 
 ## Install
 
-1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.8.0/Wrecktangle-0.8.0-x64-setup.exe)
+### On Windows
+
+1. [Download the installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.9.0/Wrecktangle-0.9.0-x64-setup.exe)
    and run it. It installs for your user only, into
    `%LOCALAPPDATA%\Programs\Wrecktangle`, and never asks for admin rights. It
    isn't code signed yet, so if Windows SmartScreen says it protected your PC,
@@ -44,20 +46,21 @@
 3. Press Ctrl+Alt+Left. The focused window fills the left half of its screen.
    Press it again for two thirds, and again for three quarters.
 
-Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.8.0/Wrecktangle-0.8.0-x64.zip):
+Or take the [portable zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.9.0/Wrecktangle-0.9.0-x64.zip):
 put `wrecktangle.exe` somewhere permanent, run it from there, and turn on
 **Launch at startup** from the tray menu.
 
 You need Windows 10 or 11. The links above are for 64-bit Windows; on 32-bit
 Windows, take the
-[32-bit installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.8.0/Wrecktangle-0.8.0-x86-setup.exe)
-or [32-bit zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.8.0/Wrecktangle-0.8.0-x86.zip)
+[32-bit installer](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.9.0/Wrecktangle-0.9.0-x86-setup.exe)
+or [32-bit zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.9.0/Wrecktangle-0.9.0-x86.zip)
 instead. Uninstall it from Apps in Windows Settings.
 
 ### On Linux
 
-Wrecktangle runs on Linux desktops that use X11, and is tested on Xfce
-(Linux Mint 22). Wayland is not supported: it doesn't let one app move
+Wrecktangle runs on Linux desktops that use X11. So far it is tested only on
+Xfce (Linux Mint 22); other X11 desktops should work, but only Xfce's own
+shortcuts can be taken over. Wayland is not supported: it doesn't let one app move
 another app's windows. Every release has packages for 64-bit PCs (`x86_64`,
 `amd64`) and for ARM64 (`aarch64`, `arm64`). Take the one for your system
 from the [releases](https://github.com/zolferfigueiredo/wrecktangle/releases):
@@ -379,14 +382,14 @@ Wrecktangle is released under the [MIT License](LICENSE).
 ## Credits
 
 - Inspired by [Rectangle](https://rectangleapp.com) by Ryan Hanson, the macOS
-  window manager. Wrecktangle is an independent Windows app, not affiliated
+  window manager. Wrecktangle is an independent app for Windows and Linux, not affiliated
   with Rectangle.
 
 ---
 
 <p align="center">
   If Wrecktangle is useful to you, please consider giving it a ⭐<br>
-  It helps other Windows users find it. Thank you!
+  It helps other users find it. Thank you!
 </p>
 
 <p align="center">
