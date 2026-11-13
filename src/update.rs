@@ -317,7 +317,8 @@ fn installer_name(tag: &str) -> String {
 
 pub fn parse_release(json: &str) -> Result<Release, &'static str> {
     let release: ReleaseJson = serde_json::from_str(json).map_err(|_| BAD_REPLY)?;
-    release_from(release)
+    let wanted = wanted_asset(&release.tag_name);
+    release_from(release, wanted.as_deref())
 }
 
 /// The newest release in a `/releases` list, or None when there is none.
@@ -330,7 +331,10 @@ pub fn parse_release_list(json: &str, pre_releases: bool) -> Result<Option<Relea
         .filter(|release| !release.draft && (pre_releases || !release.prerelease))
         .filter_map(|release| Some((parse_version(&release.tag_name)?, release)))
         .max_by(|a, b| a.0.cmp(&b.0))
-        .map(|(_, release)| release_from(release))
+        .map(|(_, release)| {
+            let wanted = wanted_asset(&release.tag_name);
+            release_from(release, wanted.as_deref())
+        })
         .transpose()
 }
 
@@ -341,7 +345,82 @@ pub fn is_pre_release(version: &str) -> bool {
     parse_version(version).is_some_and(|v| v.pre.is_some())
 }
 
-fn release_from(release: ReleaseJson) -> Result<Release, &'static str> {
+/// The release file this copy updates from: the Windows installer for its
+/// architecture, or on Linux the package of the kind it was installed from.
+/// None (a Linux copy that came from none of them, such as a development
+/// build) leaves the release page. Tests use the Windows name on every
+/// system, so they read the same everywhere.
+#[cfg(any(windows, test))]
+fn wanted_asset(tag: &str) -> Option<String> {
+    Some(installer_name(tag))
+}
+
+#[cfg(all(not(windows), not(test)))]
+fn wanted_asset(tag: &str) -> Option<String> {
+    // dpkg lists the files of every package it installed here.
+    const DPKG_LIST: &str = "/var/lib/dpkg/info/wrecktangle.list";
+    let kind = linux_install_kind(
+        std::env::var("APPIMAGE").ok().as_deref(),
+        &std::env::current_exe().ok()?,
+        std::path::Path::new(DPKG_LIST).exists(),
+    )?;
+    linux_package_name(tag, kind, std::env::consts::ARCH)
+}
+
+/// The Linux packages a release carries.
+#[cfg(any(not(windows), test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LinuxInstall {
+    Deb,
+    Rpm,
+    AppImage,
+    Tarball,
+}
+
+/// How this copy was installed, from where it runs. An AppImage says so in
+/// `APPIMAGE`. The .deb and the .rpm both put it in /usr/bin, and dpkg
+/// knowing the package tells them apart. install.sh, from the .tar.gz or a
+/// build from source, puts it in ~/.local/bin. Anything else is None.
+#[cfg(any(not(windows), test))]
+fn linux_install_kind(
+    appimage: Option<&str>,
+    exe: &std::path::Path,
+    dpkg_knows: bool,
+) -> Option<LinuxInstall> {
+    if appimage.is_some_and(|path| !path.is_empty()) {
+        return Some(LinuxInstall::AppImage);
+    }
+    if exe == std::path::Path::new("/usr/bin/wrecktangle") {
+        return Some(if dpkg_knows {
+            LinuxInstall::Deb
+        } else {
+            LinuxInstall::Rpm
+        });
+    }
+    exe.ends_with(".local/bin/wrecktangle")
+        .then_some(LinuxInstall::Tarball)
+}
+
+/// A release's file of `kind` for `arch` (as Rust names the architecture),
+/// named the way the Release workflow names it. None for an architecture
+/// the release builds nothing for.
+#[cfg(any(not(windows), test))]
+fn linux_package_name(tag: &str, kind: LinuxInstall, arch: &str) -> Option<String> {
+    let version = tag.trim_start_matches('v');
+    let deb_arch = match arch {
+        "x86_64" => "amd64",
+        "aarch64" => "arm64",
+        _ => return None,
+    };
+    Some(match kind {
+        LinuxInstall::Deb => format!("Wrecktangle-{version}-{deb_arch}.deb"),
+        LinuxInstall::Rpm => format!("Wrecktangle-{version}-{arch}.rpm"),
+        LinuxInstall::AppImage => format!("Wrecktangle-{version}-{arch}.AppImage"),
+        LinuxInstall::Tarball => format!("Wrecktangle-{version}-{arch}-linux.tar.gz"),
+    })
+}
+
+fn release_from(release: ReleaseJson, wanted: Option<&str>) -> Result<Release, &'static str> {
     let asset_url = |name: &str| {
         release
             .assets
@@ -350,7 +429,8 @@ fn release_from(release: ReleaseJson) -> Result<Release, &'static str> {
             .and_then(|a| a.browser_download_url.clone())
             .filter(|u| is_openable_url(u))
     };
-    let url = asset_url(&installer_name(&release.tag_name))
+    let url = wanted
+        .and_then(asset_url)
         .or(release.html_url.clone())
         .filter(|u| is_openable_url(u))
         .ok_or(NO_DOWNLOAD)?;
@@ -846,22 +926,13 @@ pub fn should_install_now() -> bool {
     false
 }
 
-/// Opens the new release's page, where the user picks the package for
-/// their system. The release's own download link is the Windows installer.
+/// Downloads the new release's file of the kind this copy was installed
+/// from, in the browser, or opens the release page when there is none.
 #[cfg(target_os = "linux")]
 pub fn install() {
-    if let State::Available { version, .. } = state() {
-        open_url(&release_page(&version));
+    if let State::Available { url, .. } = state() {
+        open_url(&url);
     }
-}
-
-/// The GitHub page of the release for `version`.
-#[cfg(any(not(windows), test))]
-pub fn release_page(version: &str) -> String {
-    format!(
-        "https://github.com/zolferfigueiredo/wrecktangle/releases/tag/v{}",
-        version.trim_start_matches('v')
-    )
 }
 
 #[cfg(target_os = "linux")]
@@ -1292,15 +1363,77 @@ mod tests {
     }
 
     #[test]
-    fn the_release_page_is_named_after_the_tag() {
+    fn a_linux_copy_knows_how_it_was_installed() {
+        use std::path::Path;
+        let usr = Path::new("/usr/bin/wrecktangle");
         assert_eq!(
-            release_page("0.9.0-beta.1"),
-            "https://github.com/zolferfigueiredo/wrecktangle/releases/tag/v0.9.0-beta.1"
+            linux_install_kind(Some("/home/z/Wrecktangle.AppImage"), usr, true),
+            Some(LinuxInstall::AppImage)
+        );
+        assert_eq!(linux_install_kind(None, usr, true), Some(LinuxInstall::Deb));
+        assert_eq!(
+            linux_install_kind(Some(""), usr, false),
+            Some(LinuxInstall::Rpm)
         );
         assert_eq!(
-            release_page("v1.0.0"),
-            "https://github.com/zolferfigueiredo/wrecktangle/releases/tag/v1.0.0"
+            linux_install_kind(None, Path::new("/home/z/.local/bin/wrecktangle"), false),
+            Some(LinuxInstall::Tarball)
         );
+        assert_eq!(
+            linux_install_kind(
+                None,
+                Path::new("/home/z/www/wrecktangle/target/debug/wrecktangle"),
+                true
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn linux_packages_are_named_like_the_release_files() {
+        let name = |kind, arch| linux_package_name("v0.9.0-beta.3", kind, arch);
+        assert_eq!(
+            name(LinuxInstall::Deb, "x86_64").as_deref(),
+            Some("Wrecktangle-0.9.0-beta.3-amd64.deb")
+        );
+        assert_eq!(
+            name(LinuxInstall::Deb, "aarch64").as_deref(),
+            Some("Wrecktangle-0.9.0-beta.3-arm64.deb")
+        );
+        assert_eq!(
+            name(LinuxInstall::Rpm, "aarch64").as_deref(),
+            Some("Wrecktangle-0.9.0-beta.3-aarch64.rpm")
+        );
+        assert_eq!(
+            name(LinuxInstall::AppImage, "x86_64").as_deref(),
+            Some("Wrecktangle-0.9.0-beta.3-x86_64.AppImage")
+        );
+        assert_eq!(
+            name(LinuxInstall::Tarball, "x86_64").as_deref(),
+            Some("Wrecktangle-0.9.0-beta.3-x86_64-linux.tar.gz")
+        );
+        assert_eq!(name(LinuxInstall::Deb, "riscv64"), None);
+    }
+
+    #[test]
+    fn a_linux_copy_downloads_its_own_package_or_opens_the_page() {
+        let json = r#"{"tag_name":"v0.9.0-beta.3","html_url":"https://github.com/zolferfigueiredo/wrecktangle/releases/tag/v0.9.0-beta.3","assets":[
+            {"name":"Wrecktangle-0.9.0-beta.3-x64-setup.exe","browser_download_url":"https://example.com/setup.exe"},
+            {"name":"Wrecktangle-0.9.0-beta.3-amd64.deb","browser_download_url":"https://example.com/amd64.deb"}]}"#;
+        let release = |wanted: Option<&str>| {
+            release_from(serde_json::from_str(json).unwrap(), wanted)
+                .unwrap()
+                .url
+        };
+        assert_eq!(
+            release(Some("Wrecktangle-0.9.0-beta.3-amd64.deb")),
+            "https://example.com/amd64.deb"
+        );
+        // A release without that file, or a copy installed some other way:
+        // the page.
+        let page = "https://github.com/zolferfigueiredo/wrecktangle/releases/tag/v0.9.0-beta.3";
+        assert_eq!(release(Some("Wrecktangle-0.9.0-beta.3-x86_64.rpm")), page);
+        assert_eq!(release(None), page);
     }
 
     #[test]

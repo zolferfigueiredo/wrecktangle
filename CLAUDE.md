@@ -125,10 +125,13 @@ out: `.deb` and `.rpm` with nfpm (`packaging/linux/nfpm.yaml`), the
 AppImage with appimagetool, and the `.tar.gz` with `install.sh` and
 `uninstall.sh`. nfpm, appimagetool and the AppImage runtime are pinned
 releases checked against their SHA-256 in the workflow. The publish job
-makes `SHA256SUMS` over every file. On Linux the update check opens the
-release's page (`update::release_page`), never the Windows installer the
-release links to, and an AppImage's launch at startup names the AppImage
-file (`APPIMAGE`), not its temporary mount.
+makes `SHA256SUMS` over every file. On Linux the update downloads the
+release's file of the kind this copy came from (`update::linux_install_kind`:
+`APPIMAGE` set, `/usr/bin` with or without dpkg knowing the package, or
+`~/.local/bin`) for its architecture (`linux_package_name`, named like the
+workflow's files), and opens the release page for any other copy. An
+AppImage's launch at startup names the AppImage file (`APPIMAGE`), not its
+temporary mount.
 
 A version with a pre-release part (`0.9.0-beta.1`) is a beta. The Release
 workflow publishes it as a GitHub pre-release, which `/releases/latest` never
