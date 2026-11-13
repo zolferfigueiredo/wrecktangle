@@ -370,7 +370,7 @@ fn wanted_asset(tag: &str) -> Option<String> {
 /// The Linux packages a release carries.
 #[cfg(any(not(windows), test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum LinuxInstall {
+pub(crate) enum LinuxInstall {
     Deb,
     Rpm,
     AppImage,
@@ -382,7 +382,7 @@ enum LinuxInstall {
 /// knowing the package tells them apart. install.sh, from the .tar.gz or a
 /// build from source, puts it in ~/.local/bin. Anything else is None.
 #[cfg(any(not(windows), test))]
-fn linux_install_kind(
+pub(crate) fn linux_install_kind(
     appimage: Option<&str>,
     exe: &std::path::Path,
     dpkg_knows: bool,

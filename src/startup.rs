@@ -159,6 +159,79 @@ pub fn entry_enabled(text: &str) -> bool {
     })
 }
 
+/// The program an autostart entry runs: its Exec value's first argument,
+/// with the quoting `exec_quote` adds taken off again.
+#[cfg(any(not(windows), test))]
+fn entry_program(text: &str) -> Option<String> {
+    let value = text
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("Exec="))?;
+    // The string rule first: a backslash escapes a backslash (and s, n, t,
+    // r name a space and control characters).
+    let mut unescaped = String::with_capacity(value.len());
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            unescaped.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('\\') => unescaped.push('\\'),
+            Some('s') => unescaped.push(' '),
+            Some('n') => unescaped.push('\n'),
+            Some('t') => unescaped.push('\t'),
+            Some('r') => unescaped.push('\r'),
+            Some(other) => {
+                unescaped.push('\\');
+                unescaped.push(other);
+            }
+            None => unescaped.push('\\'),
+        }
+    }
+    // Then the quoting rule: a quoted argument runs to the closing quote,
+    // with a backslash before the character it escapes.
+    let mut program = String::new();
+    let mut chars = unescaped.trim_start().chars().peekable();
+    if chars.peek() == Some(&'"') {
+        chars.next();
+        loop {
+            match chars.next()? {
+                '"' => break,
+                '\\' => program.push(chars.next()?),
+                c => program.push(c),
+            }
+        }
+    } else {
+        program.extend(chars.take_while(|c| !c.is_whitespace()));
+    }
+    let program = program.replace("%%", "%");
+    (!program.is_empty()).then_some(program)
+}
+
+/// Moves launch at startup to this copy when this is an installed copy (a
+/// package, an AppImage or ~/.local) and the entry runs another program: an
+/// older install, or the development build it was turned on from. A
+/// package can't change the user's own entry when it installs, so the copy
+/// does it when it first starts. A development build never takes it over.
+#[cfg(not(windows))]
+pub fn adopt_autostart() {
+    let Ok(text) = std::fs::read_to_string(autostart_path()) else {
+        return;
+    };
+    let Ok(current) = std::env::current_exe() else {
+        return;
+    };
+    let appimage = std::env::var("APPIMAGE").ok();
+    if crate::update::linux_install_kind(appimage.as_deref(), &current, false).is_none() {
+        return;
+    }
+    let this = autostart_exe(appimage.as_deref(), &current);
+    if entry_enabled(&text) && entry_program(&text).as_deref() != Some(this.as_str()) {
+        let _ = set_enabled(true);
+    }
+}
+
 #[cfg(not(windows))]
 fn autostart_path() -> std::path::PathBuf {
     crate::config::xdg_config_home()
@@ -511,5 +584,26 @@ mod tests {
         let installed = std::path::Path::new("/usr/bin/wrecktangle");
         assert_eq!(autostart_exe(None, installed), "/usr/bin/wrecktangle");
         assert_eq!(autostart_exe(Some(""), installed), "/usr/bin/wrecktangle");
+    }
+
+    #[test]
+    fn the_entry_program_comes_back_out_of_its_quoting() {
+        for path in [
+            "/usr/bin/wrecktangle",
+            "/opt/my apps/Wrecktangle.AppImage",
+            "/a\"b$c`d\\e/100%",
+        ] {
+            assert_eq!(
+                entry_program(&desktop_entry(path)).as_deref(),
+                Some(path),
+                "{path}"
+            );
+        }
+        assert_eq!(
+            entry_program("[Desktop Entry]\nExec=wrecktangle --flag\n").as_deref(),
+            Some("wrecktangle")
+        );
+        assert_eq!(entry_program("[Desktop Entry]\nName=W\n"), None);
+        assert_eq!(entry_program("Exec=\"/unclosed\n"), None);
     }
 }

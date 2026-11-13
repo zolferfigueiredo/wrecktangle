@@ -38,6 +38,11 @@ pub fn run() {
         return;
     }
     let quit = std::env::args().any(|arg| arg == "--quit");
+    // Before the single-instance check, so starting a newly installed copy
+    // while an older one runs still moves sign-in to it.
+    if !quit {
+        crate::startup::adopt_autostart();
+    }
     let wayland =
         std::env::var("XDG_SESSION_TYPE").is_ok_and(|t| t.eq_ignore_ascii_case("wayland"));
     if wayland || std::env::var_os("DISPLAY").is_none() {
