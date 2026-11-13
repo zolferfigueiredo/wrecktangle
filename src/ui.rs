@@ -2,7 +2,9 @@
 //! snapping, scrolling and focus order. `view` builds the pages from these
 //! and `palette` holds the colors; `settings` only measures text and draws.
 
+pub mod model;
 pub mod palette;
+pub mod session;
 pub mod view;
 
 /// A rectangle in device independent pixels (DIPs, 1/96 inch).

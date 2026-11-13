@@ -8,12 +8,16 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Check the README badge and download links match the Cargo version
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          echo "V=$version" >> "$GITHUB_ENV"
+          # A pre-release (0.9.0-beta.1) leaves the README on the latest
+          # release, since its readers want that one.
+          case "$version" in *-*) exit 0 ;; esac
           if ! grep -qF "img.shields.io/badge/release-v$version-blue" README.md; then
             echo "The release badge in README.md does not show v$version from Cargo.toml" >&2
             exit 1
@@ -27,12 +31,12 @@ jobs:
             echo "$stale" >&2
             exit 1
           fi
-          echo "V=$version" >> "$GITHUB_ENV"
       - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64 gcc-mingw-w64-i686
       - run: rustup toolchain install && rustup target add x86_64-pc-windows-gnu i686-pc-windows-gnu
       - uses: Swatinem/rust-cache@v2.9.2
       - run: cargo fmt --check
       - run: cargo test
+      - run: cargo clippy --all-targets -- -D warnings
       - run: cargo clippy --target x86_64-pc-windows-gnu --all-targets -- -D warnings
       # The 32-bit build differs in places: some Win32 structs are packed there.
       - run: cargo clippy --target i686-pc-windows-gnu --all-targets -- -D warnings
@@ -42,3 +46,9 @@ jobs:
         with:
           name: Wrecktangle-${{ env.V }}-x64
           path: Wrecktangle-${{ env.V }}-x64.exe
+      - run: cargo build --release
+      - run: cp target/release/wrecktangle "Wrecktangle-$V-x86_64-linux"
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: Wrecktangle-${{ env.V }}-x86_64-linux
+          path: Wrecktangle-${{ env.V }}-x86_64-linux

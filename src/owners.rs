@@ -32,7 +32,8 @@ const CLAUDE_EXE: &str = "claude.exe";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OwnerName {
-    Windows(&'static str),
+    /// A lang key naming a part of the system, such as Windows Snap.
+    System(&'static str),
     Product(String),
 }
 
@@ -45,7 +46,7 @@ pub struct Owner {
 impl Owner {
     pub fn note(&self) -> String {
         let name = match &self.name {
-            OwnerName::Windows(key) => lang::t(key),
+            OwnerName::System(key) => lang::t(key),
             OwnerName::Product(name) => name.clone(),
         };
         let key = if self.certain {
@@ -85,13 +86,13 @@ fn resolve(sc: &Shortcut, known: &Known, running: &dyn Fn(&str) -> bool) -> Opti
     }
     if let Some(key) = windows_builtin(sc) {
         return Some(Owner {
-            name: OwnerName::Windows(key),
+            name: OwnerName::System(key),
             certain: true,
         });
     }
     if is_magnifier_chord(sc) && running(MAGNIFIER_EXE) {
         return Some(Owner {
-            name: OwnerName::Windows("owner.magnifier"),
+            name: OwnerName::System("owner.magnifier"),
             certain: false,
         });
     }

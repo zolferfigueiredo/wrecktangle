@@ -1,7 +1,8 @@
 //! Settings window colors: the Windows 11 Fluent tokens the window was
 //! designed with, plus the app's own shades of the foreground. The accent is
-//! the one picked in Windows (Fluent's blue when Windows gives none), and
-//! "Wrecktangle colors" swaps it for the logo's yellow, as on the website.
+//! the one picked in Windows or the Linux desktop (Fluent's blue when the
+//! system gives none), and "Wrecktangle colors" swaps it for the logo's
+//! yellow, as on the website.
 
 use crate::theme::Mode;
 
@@ -41,6 +42,68 @@ impl Rgba {
 pub struct Accent {
     pub on_dark: Rgba,
     pub on_light: Rgba,
+}
+
+const DARK_BACKGROUND: Rgba = Rgba::hex(0x1C1C1CFF);
+const LIGHT_BACKGROUND: Rgba = Rgba::hex(0xFAFAFAFF);
+/// WCAG AA for text, which the accent also colors (links, notes).
+// Windows gives both shades itself; only Linux derives them from one color.
+#[cfg_attr(windows, allow(dead_code))]
+const MIN_CONTRAST: f32 = 4.5;
+
+#[cfg_attr(windows, allow(dead_code))]
+impl Accent {
+    /// Both shades from one color, as the Linux desktop gives it: the color
+    /// itself wherever it already reads, otherwise mixed toward white (on
+    /// dark) or black (on light) only as far as text in it needs. Black
+    /// marks on the dark shade and white ones on the light shade then read
+    /// too.
+    pub fn from_color(color: Rgba) -> Accent {
+        Accent {
+            on_dark: readable(color, DARK_BACKGROUND, Rgba::hex(0xFFFFFFFF)),
+            on_light: readable(color, LIGHT_BACKGROUND, Rgba::hex(0x000000FF)),
+        }
+    }
+}
+
+#[cfg_attr(windows, allow(dead_code))]
+fn readable(color: Rgba, background: Rgba, toward: Rgba) -> Rgba {
+    let color = Rgba { a: 255, ..color };
+    (0..=50)
+        .map(|step| mix(color, toward, step as f32 / 50.0))
+        .find(|c| contrast(*c, background) >= MIN_CONTRAST)
+        .unwrap_or(toward)
+}
+
+#[cfg_attr(windows, allow(dead_code))]
+fn mix(a: Rgba, b: Rgba, t: f32) -> Rgba {
+    let channel = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round() as u8;
+    Rgba {
+        r: channel(a.r, b.r),
+        g: channel(a.g, b.g),
+        b: channel(a.b, b.b),
+        a: 255,
+    }
+}
+
+/// WCAG relative luminance of an opaque color.
+#[cfg_attr(windows, allow(dead_code))]
+fn luminance(c: Rgba) -> f32 {
+    let linear = |v: u8| {
+        let v = f32::from(v) / 255.0;
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * linear(c.r) + 0.7152 * linear(c.g) + 0.0722 * linear(c.b)
+}
+
+#[cfg_attr(windows, allow(dead_code))]
+fn contrast(a: Rgba, b: Rgba) -> f32 {
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -119,7 +182,11 @@ pub fn palette(mode: Mode, wrecktangle_colors: bool, accent: Option<Accent>) -> 
             )
         };
     Palette {
-        background: pick(0x1C1C1CFF, 0xFAFAFAFF),
+        background: if dark {
+            DARK_BACKGROUND
+        } else {
+            LIGHT_BACKGROUND
+        },
         foreground,
         accent,
         accent_text,
@@ -225,6 +292,29 @@ mod tests {
                 Rgba::hex(0xF0B000FF)
             );
         }
+    }
+
+    #[test]
+    fn a_desktop_accent_is_kept_where_it_reads_and_shifted_where_it_does_not() {
+        // Mint-L-Dark-Blue's selection color reads on light but not on dark.
+        let mint = Rgba::hex(0x596EB5FF);
+        let accent = Accent::from_color(mint);
+        assert_eq!(accent.on_light, mint);
+        assert_ne!(accent.on_dark, mint);
+        assert!(accent.on_dark.r > mint.r && accent.on_dark.b > mint.b);
+        assert!(contrast(accent.on_dark, DARK_BACKGROUND) >= MIN_CONTRAST);
+        // Only as far as needed, so it stays recognizably the same blue.
+        assert!(contrast(accent.on_dark, DARK_BACKGROUND) < MIN_CONTRAST + 0.5);
+
+        // A pale color darkens for light mode and stays for dark mode.
+        let pale = Rgba::hex(0xA8D8FFFF);
+        let accent = Accent::from_color(pale);
+        assert_eq!(accent.on_dark, pale);
+        assert!(contrast(accent.on_light, LIGHT_BACKGROUND) >= MIN_CONTRAST);
+        assert!(contrast(accent.on_light, Rgba::hex(0xFFFFFFFF)) >= MIN_CONTRAST);
+
+        // Translucent input still gives opaque shades.
+        assert_eq!(Accent::from_color(Rgba::hex(0x596EB580)).on_light.a, 255);
     }
 
     #[test]

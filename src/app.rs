@@ -118,7 +118,7 @@ pub fn init() -> windows::core::Result<HWND> {
             });
         });
 
-        theme::apply_dark_menu(theme::current_mode() == theme::Mode::Dark);
+        theme::apply_dark_menu(theme::current_mode(current_config().theme) == theme::Mode::Dark);
 
         let failed = register_all(hwnd);
         let mut notices = Vec::new();
@@ -193,7 +193,7 @@ pub fn shortcut_note(action: Action) -> Option<String> {
     })?;
     Some(match claim {
         Claim::TakenOver => takeover_note(&sc),
-        Claim::Reserved => lang::t("status.reserved"),
+        Claim::Reserved => lang::format("status.reserved", &[("system", lang::SYSTEM)]),
         Claim::HookFailed => lang::t("status.in_use"),
     })
 }
@@ -201,7 +201,7 @@ pub fn shortcut_note(action: Action) -> Option<String> {
 fn takeover_note(sc: &Shortcut) -> String {
     match owners::find_owner(sc) {
         Some(owner) => owner.note(),
-        None => lang::t("status.overrides_generic"),
+        None => lang::format("status.overrides_generic", &[("system", lang::SYSTEM)]),
     }
 }
 
@@ -278,7 +278,7 @@ fn failed_message(failed: &[Action]) -> String {
     let names: Vec<String> = failed
         .iter()
         .map(|&action| match config.shortcuts.get(action) {
-            Some(sc) => format!("{} ({})", lang::t(action.key()), shortcut::format(&sc)),
+            Some(sc) => format!("{} ({})", lang::t(action.key()), shortcut::display(&sc)),
             None => lang::t(action.key()),
         })
         .collect();
@@ -479,7 +479,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         }
         WM_SETTINGCHANGE => {
             if theme::is_immersive_color_set_change(lparam) {
-                theme::apply_dark_menu(theme::current_mode() == theme::Mode::Dark);
+                theme::apply_dark_menu(
+                    theme::current_mode(current_config().theme) == theme::Mode::Dark,
+                );
             }
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }

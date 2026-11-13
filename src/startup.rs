@@ -1,8 +1,9 @@
-//! Launch at startup. Registered as a per-user Task Scheduler logon task,
+//! Launch at startup. On Windows it is a per-user Task Scheduler logon task,
 //! which starts as soon as the user signs in. Explorer starts Run-key apps
 //! only after the desktop is up, after a delay and one at a time, so a Run
 //! value can leave Wrecktangle waiting behind every other startup app. The
-//! Run value is kept as the fallback when the task can't be created.
+//! Run value is kept as the fallback when the task can't be created. On
+//! Linux it is an XDG autostart entry in `~/.config/autostart`.
 
 #[cfg(windows)]
 use windows::Win32::Foundation::{E_FAIL, ERROR_FILE_NOT_FOUND, WIN32_ERROR};
@@ -107,6 +108,90 @@ pub fn task_xml(account: &str, command: &str) -> String {
 /// are case-insensitive.
 pub fn same_command(value: &str, command: &str) -> bool {
     value.trim().to_lowercase() == command.trim().to_lowercase()
+}
+
+/// The XDG autostart entry that runs `exe` when the user signs in.
+#[cfg(any(not(windows), test))]
+pub fn desktop_entry(exe: &str) -> String {
+    format!(
+        "[Desktop Entry]\n\
+         Type=Application\n\
+         Name=Wrecktangle\n\
+         Comment=Starts Wrecktangle when you sign in.\n\
+         Exec={}\n\
+         Icon=wrecktangle\n\
+         Terminal=false\n\
+         X-GNOME-Autostart-enabled=true\n",
+        exec_quote(exe)
+    )
+}
+
+/// Quotes a path for an Exec key. The quoting rule escapes `"`, `` ` ``,
+/// `$` and `\` with a backslash, and the string rule that runs first needs
+/// that backslash doubled. `%` starts a field code, so it is doubled too.
+#[cfg(any(not(windows), test))]
+fn exec_quote(path: &str) -> String {
+    let mut out = String::with_capacity(path.len() + 2);
+    out.push('"');
+    for c in path.chars() {
+        match c {
+            '"' | '`' | '$' => {
+                out.push_str("\\\\");
+                out.push(c);
+            }
+            '\\' => out.push_str("\\\\\\\\"),
+            '%' => out.push_str("%%"),
+            _ => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Whether an autostart entry runs: the desktop's own Startup settings turn
+/// an entry off with `Hidden=true` or `X-GNOME-Autostart-enabled=false`
+/// rather than deleting it.
+#[cfg(any(not(windows), test))]
+pub fn entry_enabled(text: &str) -> bool {
+    !text.lines().map(str::trim).any(|line| {
+        line.eq_ignore_ascii_case("Hidden=true")
+            || line.eq_ignore_ascii_case("X-GNOME-Autostart-enabled=false")
+    })
+}
+
+#[cfg(not(windows))]
+fn autostart_path() -> std::path::PathBuf {
+    crate::config::xdg_config_home()
+        .join("autostart")
+        .join("wrecktangle.desktop")
+}
+
+#[cfg(not(windows))]
+pub fn is_enabled() -> bool {
+    std::fs::read_to_string(autostart_path()).is_ok_and(|text| entry_enabled(&text))
+}
+
+#[cfg(not(windows))]
+pub fn set_enabled(enabled: bool) -> std::io::Result<()> {
+    let path = autostart_path();
+    if !enabled {
+        return match std::fs::remove_file(&path) {
+            Err(err) if err.kind() != std::io::ErrorKind::NotFound => Err(err),
+            _ => Ok(()),
+        };
+    }
+    let exe = std::env::current_exe()?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(&path, desktop_entry(&exe.display().to_string()))
+}
+
+#[cfg(not(windows))]
+pub fn toggle() -> std::io::Result<bool> {
+    let enabled = !is_enabled();
+    set_enabled(enabled)?;
+    Ok(enabled)
 }
 
 #[cfg(windows)]
@@ -372,6 +457,33 @@ mod tests {
         assert!(!same_command(
             "\"C:\\dev\\wrecktangle\\target\\release\\wrecktangle.exe\"",
             command
+        ));
+    }
+
+    #[test]
+    fn desktop_entry_runs_the_quoted_exe() {
+        let entry = desktop_entry("/home/z/.local/bin/wrecktangle");
+        assert!(entry.starts_with("[Desktop Entry]\n"));
+        assert!(entry.contains("\nType=Application\n"));
+        assert!(entry.contains("\nExec=\"/home/z/.local/bin/wrecktangle\"\n"));
+        assert!(entry.contains("\nX-GNOME-Autostart-enabled=true\n"));
+    }
+
+    #[test]
+    fn exec_quote_escapes_what_the_spec_reserves() {
+        assert_eq!(exec_quote("/opt/my apps/w"), "\"/opt/my apps/w\"");
+        assert_eq!(exec_quote("/a\"b"), "\"/a\\\\\"b\"");
+        assert_eq!(exec_quote("/a$b"), "\"/a\\\\$b\"");
+        assert_eq!(exec_quote("/a\\b"), "\"/a\\\\\\\\b\"");
+        assert_eq!(exec_quote("/100%"), "\"/100%%\"");
+    }
+
+    #[test]
+    fn entries_turned_off_by_the_desktop_count_as_off() {
+        assert!(entry_enabled(&desktop_entry("/w")));
+        assert!(!entry_enabled("[Desktop Entry]\nExec=w\nHidden=true\n"));
+        assert!(!entry_enabled(
+            "[Desktop Entry]\nX-GNOME-Autostart-enabled=false\n"
         ));
     }
 }

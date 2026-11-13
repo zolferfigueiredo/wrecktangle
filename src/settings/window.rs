@@ -37,13 +37,13 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 use windows::core::{Error, PCWSTR, Result, w};
 
-use super::Command;
 use super::gfx::{Gfx, Text};
 use crate::lang;
-use crate::theme::{self, Mode};
+use crate::theme::{self, Mode, Theme};
+use crate::ui::Snap;
 use crate::ui::palette::{Accent, Rgba, palette};
-use crate::ui::view::{self, Interaction, Layout, Model, PAGES, Page, Target};
-use crate::ui::{Scroll, Snap, focus_step};
+use crate::ui::session::{Key, Session};
+use crate::ui::view::{Model, Page, Target};
 
 const CLASS_NAME: PCWSTR = w!("WrecktangleSettingsWindow");
 const CLIENT_W: f32 = 640.0;
@@ -52,29 +52,16 @@ const CLIENT_W: f32 = 640.0;
 const CLIENT_H: f32 = 784.0;
 const MIN_W: f32 = 480.0;
 const MIN_H: f32 = 320.0;
-const LINE_SCROLL: f32 = 16.0;
-const REVEAL_MARGIN: f32 = 8.0;
 /// SystemParametersInfo's "scroll one page per notch" value.
 const WHEEL_PAGESCROLL: u32 = u32::MAX;
-
-#[derive(Clone, Copy)]
-struct Drag {
-    start_y: f32,
-    start_offset: f32,
-}
 
 struct Window {
     hwnd: HWND,
     gfx: Gfx,
-    model: Model,
-    layout: Option<Layout<Text>>,
-    ui: Interaction,
-    offsets: [f32; PAGES.len()],
+    session: Session<Text>,
     mode: Mode,
     accent: Option<Accent>,
-    mouse: Option<(f32, f32)>,
     tracking: bool,
-    drag: Option<Drag>,
 }
 
 thread_local! {
@@ -87,15 +74,21 @@ fn handle() -> Option<HWND> {
     HANDLE.with(Cell::get)
 }
 
-/// Runs `f` on the window state. Re-entering while it is borrowed is a bug
-/// (see CLAUDE.md); it is skipped rather than aborting the process.
+/// Runs `f` on the window state, then schedules a repaint if the session
+/// changed what shows. Re-entering while it is borrowed is a bug (see
+/// CLAUDE.md); it is skipped rather than aborting the process.
 fn with<R>(f: impl FnOnce(&mut Window) -> R) -> Option<R> {
     WINDOW.with(|cell| {
         let Ok(mut state) = cell.try_borrow_mut() else {
             debug_assert!(false, "Settings window state borrowed re-entrantly");
             return None;
         };
-        state.as_mut().map(f)
+        let window = state.as_mut()?;
+        let result = f(window);
+        if window.session.take_dirty() {
+            window.invalidate();
+        }
+        Some(result)
     })
 }
 
@@ -112,10 +105,6 @@ fn dpi(hwnd: HWND) -> u32 {
 
 fn colorref(c: Rgba) -> COLORREF {
     COLORREF(u32::from(c.r) | (u32::from(c.g) << 8) | (u32::from(c.b) << 16))
-}
-
-fn page_index(page: Page) -> usize {
-    PAGES.iter().position(|p| *p == page).unwrap_or(0)
 }
 
 /// The outer size of a window whose client area is `w` x `h` DIPs.
@@ -212,7 +201,7 @@ pub fn create() -> Result<()> {
         }
 
         let (x, y, w, h, monitor_dpi) = placement();
-        let mode = theme::current_mode();
+        let mode = theme::current_mode(crate::app::current_config().theme);
         let accent = theme::system_accent();
         BACKGROUND.with(|bg| bg.set(colorref(palette(mode, false, None).background)));
         let gfx = Gfx::new(monitor_dpi)?;
@@ -234,15 +223,10 @@ pub fn create() -> Result<()> {
         let mut window = Window {
             hwnd,
             gfx,
-            model: Model::default(),
-            layout: None,
-            ui: Interaction::default(),
-            offsets: [0.0; PAGES.len()],
+            session: Session::default(),
             mode,
             accent,
-            mouse: None,
             tracking: false,
-            drag: None,
         };
         window.gfx.set_dpi(dpi(hwnd));
         WINDOW.with(|cell| *cell.borrow_mut() = Some(window));
@@ -258,7 +242,7 @@ pub fn is_visible() -> bool {
 
 pub fn show() {
     let Some(hwnd) = handle() else { return };
-    retheme(hwnd);
+    retheme_window(hwnd);
     unsafe {
         if MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL).is_invalid() {
             let (x, y, w, h, _) = placement();
@@ -276,35 +260,18 @@ pub fn show() {
 
 /// Changes what the window shows; it repaints on its own.
 pub fn update(change: impl FnOnce(&mut Model)) {
-    with(|w| {
-        change(&mut w.model);
-        w.layout = None;
-        w.invalidate();
-    });
+    with(|w| w.session.update(change));
 }
 
 /// Switches the page; false if it was already showing.
 pub fn set_page(page: Page) -> bool {
-    with(|w| {
-        if w.model.page == page {
-            return false;
-        }
-        w.model.page = page;
-        if matches!(w.ui.focus, Some(Target::Tab(_))) {
-            w.ui.focus = Some(Target::Tab(page));
-        }
-        w.layout = None;
-        w.invalidate();
-        true
-    })
-    .unwrap_or(false)
+    with(|w| w.session.set_page(page)).unwrap_or(false)
 }
 
 pub fn language_changed() {
     with(|w| {
         w.gfx.language_changed();
-        w.layout = None;
-        w.invalidate();
+        w.session.relayout();
     });
     if let Some(hwnd) = handle() {
         let title = wide(&lang::t("window.title"));
@@ -317,14 +284,28 @@ pub fn language_changed() {
 /// Shows the languages as a menu under the language box and returns the
 /// chosen index.
 pub fn pick_language(current: usize) -> Option<usize> {
+    let names: Vec<&str> = lang::LANGUAGES.iter().map(|l| l.name).collect();
+    pick(Target::Language, &names, current)
+}
+
+/// Shows System, Light and Dark as a menu under the theme box and returns
+/// the chosen index into `Theme::ALL`.
+pub fn pick_theme(current: Theme) -> Option<usize> {
+    let names: Vec<String> = Theme::ALL
+        .iter()
+        .map(|theme| lang::t(theme.label_key()))
+        .collect();
+    let names: Vec<&str> = names.iter().map(String::as_str).collect();
+    pick(Target::Theme, &names, current.index())
+}
+
+/// A menu of `names` under a box, with `current` checked; the chosen index.
+fn pick(target: Target, names: &[&str], current: usize) -> Option<usize> {
     let hwnd = handle()?;
     let (rect, scale) = with(|w| {
         w.ensure_layout();
-        let rect = w
-            .layout
-            .as_ref()?
-            .window_rect(Target::Language, w.painted_offset())?;
-        Some((rect, w.snap().scale))
+        let rect = w.session.window_rect(target)?;
+        Some((rect, w.session.snap().scale))
     })??;
     let to_px = |v: f32| (v * scale).round() as i32;
     let mut top_left = POINT {
@@ -339,8 +320,8 @@ pub fn pick_language(current: usize) -> Option<usize> {
         let _ = ClientToScreen(hwnd, &mut top_left);
         let _ = ClientToScreen(hwnd, &mut bottom_right);
         let menu = CreatePopupMenu().ok()?;
-        for (index, language) in lang::LANGUAGES.iter().enumerate() {
-            let name = wide(language.name);
+        for (index, name) in names.iter().enumerate() {
+            let name = wide(name);
             let flags = if index == current {
                 MF_STRING | MF_CHECKED
             } else {
@@ -384,140 +365,48 @@ impl Window {
     }
 
     fn ensure_layout(&mut self) {
-        if self.layout.is_some() {
-            return;
-        }
         let snap = self.snap();
         let mut client = RECT::default();
         let _ = unsafe { GetClientRect(self.hwnd, &mut client) };
         let width = (client.right - client.left) as f32 / snap.scale;
         let height = (client.bottom - client.top) as f32 / snap.scale;
-        let layout = view::layout(&self.model, &mut self.gfx, width, height, snap);
-        if self.ui.focus.is_some_and(|t| !layout.has_target(t)) {
-            self.ui.focus = None;
-        }
-        if self.ui.pressed.is_some_and(|t| !layout.has_target(t)) {
-            self.ui.pressed = None;
-        }
-        self.layout = Some(layout);
-        self.set_offset(self.offset());
-        self.update_hover();
-    }
-
-    fn offset(&self) -> f32 {
-        self.offsets[page_index(self.model.page)]
-    }
-
-    fn scroll(&self) -> Scroll {
-        match &self.layout {
-            Some(layout) => Scroll {
-                offset: self.offset(),
-                content: layout.content_height,
-                viewport: layout.viewport.h,
-            },
-            None => Scroll::default(),
-        }
-    }
-
-    fn set_offset(&mut self, offset: f32) {
-        let mut scroll = self.scroll();
-        scroll.offset = offset;
-        scroll.clamp();
-        if scroll.offset != self.offset() {
-            self.offsets[page_index(self.model.page)] = scroll.offset;
-            self.invalidate();
-        }
-    }
-
-    /// The offset content is painted and hit tested with, on whole pixels.
-    fn painted_offset(&self) -> f32 {
-        self.snap().round(self.offset())
-    }
-
-    fn over_scrollbar(&self, x: f32, y: f32) -> bool {
-        self.layout
-            .as_ref()
-            .and_then(|layout| self.scroll().bar(layout.viewport))
-            .is_some_and(|bar| bar.contains(x, y))
-    }
-
-    fn target_at(&self, x: f32, y: f32) -> Option<Target> {
-        if self.over_scrollbar(x, y) {
-            return None;
-        }
-        self.layout.as_ref()?.hit(x, y, self.painted_offset())
-    }
-
-    fn update_hover(&mut self) {
-        if self.drag.is_some() {
-            return;
-        }
-        let (hover, bar) = match self.mouse {
-            Some((x, y)) => (self.target_at(x, y), self.over_scrollbar(x, y)),
-            None => (None, false),
-        };
-        if hover != self.ui.hover || bar != self.ui.bar_hover {
-            self.ui.hover = hover;
-            self.ui.bar_hover = bar;
-            self.invalidate();
-        }
-    }
-
-    fn reveal(&mut self, target: Target) {
-        let Some(rect) = self.layout.as_ref().and_then(|l| l.content_rect(target)) else {
-            return;
-        };
-        let mut scroll = self.scroll();
-        scroll.reveal(rect.y, rect.bottom(), REVEAL_MARGIN);
-        self.set_offset(scroll.offset);
-    }
-
-    fn command(&self, target: Target) -> Command {
-        match target {
-            Target::Tab(page) => Command::Page(page),
-            Target::Pill(index) => Command::Record(index),
-            Target::Clear(index) => Command::Clear(index),
-            Target::RestoreDefaults => Command::RestoreDefaults,
-            Target::Language => Command::LanguageMenu,
-            Target::Colors => Command::SetColors(!self.model.wrecktangle_colors),
-            Target::Size(index) => Command::ToggleSize(index),
-            Target::Startup => Command::SetStartup(!self.model.startup),
-            Target::AutoUpdate => Command::SetAutoUpdate(!self.model.auto_update),
-            Target::AutoInstall => Command::SetAutoInstall(!self.model.auto_install),
-            Target::BlockSnap => Command::SetBlockSnap(!self.model.block_windows_snap),
-            Target::CheckNow => Command::CheckNow,
-            Target::Update => Command::Update,
-            Target::Link(link) => Command::OpenUrl(link.url()),
-        }
+        self.session
+            .ensure_layout(&mut self.gfx, width, height, snap);
     }
 
     /// Draws a frame; true if the device was lost and it must be redrawn.
     fn paint(&mut self) -> bool {
         self.ensure_layout();
-        let Some(layout) = &self.layout else {
+        let palette = palette(
+            self.mode,
+            self.session.model.wrecktangle_colors,
+            self.accent,
+        );
+        let Some(ops) = self.session.paint(&palette) else {
             return false;
         };
-        let ops = view::paint(
-            layout,
-            &self.ui,
-            &self.scroll(),
-            &palette(self.mode, self.model.wrecktangle_colors, self.accent),
-            self.snap(),
-        );
         matches!(self.gfx.draw(self.hwnd, &ops), Err(e) if e.code() == D2DERR_RECREATE_TARGET)
     }
 }
 
+/// Takes the light or dark mode and the accent again, after the Theme
+/// setting changed.
+pub fn retheme() {
+    if let Some(hwnd) = handle() {
+        retheme_window(hwnd);
+    }
+}
+
 // Also when the accent color changes, which Windows announces the same way.
-fn retheme(hwnd: HWND) {
-    let mode = theme::current_mode();
+fn retheme_window(hwnd: HWND) {
+    let mode = theme::current_mode(crate::app::current_config().theme);
     // Read before borrowing the window state, since it calls into Windows.
     let accent = theme::system_accent();
     BACKGROUND.with(|bg| bg.set(colorref(palette(mode, false, None).background)));
     with(|w| {
         w.mode = mode;
         w.accent = accent;
-        w.invalidate();
+        w.session.invalidate();
     });
     theme::apply_title_bar(hwnd, mode == Mode::Dark);
 }
@@ -532,16 +421,7 @@ fn mouse_point(hwnd: HWND, lparam: LPARAM) -> (f32, f32) {
 fn mouse_move(hwnd: HWND, x: f32, y: f32) {
     let start_tracking = with(|w| {
         w.ensure_layout();
-        w.mouse = Some((x, y));
-        if let Some(drag) = w.drag {
-            let viewport = w.layout.as_ref().map(|l| l.viewport).unwrap_or_default();
-            let offset = w
-                .scroll()
-                .drag(viewport, drag.start_offset, y - drag.start_y);
-            w.set_offset(offset);
-        } else {
-            w.update_hover();
-        }
+        w.session.mouse_move(x, y);
         !std::mem::replace(&mut w.tracking, true)
     })
     .unwrap_or(false);
@@ -561,35 +441,7 @@ fn mouse_move(hwnd: HWND, x: f32, y: f32) {
 fn mouse_down(hwnd: HWND, x: f32, y: f32) {
     let capture = with(|w| {
         w.ensure_layout();
-        w.mouse = Some((x, y));
-        w.ui.focus_visible = false;
-        w.update_hover();
-        w.invalidate();
-        if w.over_scrollbar(x, y) {
-            let scroll = w.scroll();
-            let viewport = w.layout.as_ref().map(|l| l.viewport).unwrap_or_default();
-            let Some(thumb) = scroll.thumb(viewport, true) else {
-                return false;
-            };
-            if y < thumb.y {
-                w.set_offset(scroll.offset - viewport.h);
-            } else if y >= thumb.bottom() {
-                w.set_offset(scroll.offset + viewport.h);
-            } else {
-                w.drag = Some(Drag {
-                    start_y: y,
-                    start_offset: scroll.offset,
-                });
-                w.ui.bar_drag = true;
-            }
-            return w.drag.is_some();
-        }
-        let target = w.target_at(x, y);
-        w.ui.pressed = target;
-        if target.is_some() {
-            w.ui.focus = target;
-        }
-        target.is_some()
+        w.session.mouse_down(x, y)
     })
     .unwrap_or(false);
     if capture {
@@ -600,17 +452,7 @@ fn mouse_down(hwnd: HWND, x: f32, y: f32) {
 }
 
 fn mouse_up(x: f32, y: f32) {
-    let (release, command) = with(|w| {
-        let dragged = w.drag.take().is_some();
-        w.ui.bar_drag = false;
-        w.mouse = Some((x, y));
-        w.update_hover();
-        let pressed = w.ui.pressed.take();
-        w.invalidate();
-        let clicked = pressed.filter(|t| w.ui.hover == Some(*t));
-        (dragged || pressed.is_some(), clicked.map(|t| w.command(t)))
-    })
-    .unwrap_or((false, None));
+    let (release, command) = with(|w| w.session.mouse_up(x, y)).unwrap_or((false, None));
     if release {
         unsafe {
             let _ = ReleaseCapture();
@@ -631,16 +473,11 @@ fn wheel(delta: i16) {
             SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
         );
     }
+    let lines = (lines != WHEEL_PAGESCROLL).then_some(lines as f32);
     with(|w| {
         w.ensure_layout();
-        let step = if lines == WHEEL_PAGESCROLL {
-            w.scroll().viewport
-        } else {
-            lines as f32 * LINE_SCROLL
-        };
-        let amount = -f32::from(delta) / WHEEL_DELTA as f32 * step;
-        w.set_offset(w.offset() + amount);
-        w.update_hover();
+        w.session
+            .wheel(f32::from(delta) / WHEEL_DELTA as f32, lines);
     });
 }
 
@@ -653,8 +490,8 @@ fn set_cursor(hwnd: HWND) {
     }
     let hand = with(|w| {
         w.ensure_layout();
-        w.target_at(point.x as f32 / scale, point.y as f32 / scale)
-            .is_some_and(Target::uses_hand_cursor)
+        w.session
+            .wants_hand_cursor(point.x as f32 / scale, point.y as f32 / scale)
     })
     .unwrap_or(false);
     let cursor = if hand { IDC_HAND } else { IDC_ARROW };
@@ -664,81 +501,25 @@ fn set_cursor(hwnd: HWND) {
 }
 
 fn key_down(vk: VIRTUAL_KEY, repeat: bool) -> bool {
+    let key = match vk {
+        VK_TAB => Key::Tab,
+        VK_RETURN => Key::Enter,
+        VK_SPACE => Key::Space,
+        VK_UP => Key::Up,
+        VK_DOWN => Key::Down,
+        _ => return false,
+    };
     let pressed = |key: VIRTUAL_KEY| unsafe { GetKeyState(i32::from(key.0)) } < 0;
-    match vk {
-        VK_TAB if pressed(VK_CONTROL) => {
-            let backwards = pressed(VK_SHIFT);
-            let page = with(|w| {
-                let i = page_index(w.model.page);
-                let n = PAGES.len();
-                PAGES[if backwards {
-                    (i + n - 1) % n
-                } else {
-                    (i + 1) % n
-                }]
-            });
-            if let Some(page) = page {
-                super::run(Command::Page(page));
-            }
-            true
-        }
-        VK_TAB => {
-            let backwards = pressed(VK_SHIFT);
-            with(|w| {
-                w.ensure_layout();
-                let order = w
-                    .layout
-                    .as_ref()
-                    .map(|l| l.focus_order())
-                    .unwrap_or_default();
-                w.ui.focus = focus_step(&order, w.ui.focus, backwards);
-                w.ui.focus_visible = true;
-                if let Some(target) = w.ui.focus {
-                    w.reveal(target);
-                }
-                w.update_hover();
-                w.invalidate();
-            });
-            true
-        }
-        VK_RETURN | VK_SPACE => {
-            // Only the first key-down: holding the key must not repeat, and
-            // the key-up of a just recorded Space or Enter must not activate.
-            if repeat {
-                return true;
-            }
-            let command = with(|w| {
-                w.ensure_layout();
-                let focus = w.ui.focus?;
-                w.ui.focus_visible = true;
-                w.invalidate();
-                Some(w.command(focus))
-            })
-            .flatten();
-            if let Some(command) = command {
-                super::run(command);
-            }
-            true
-        }
-        VK_UP | VK_DOWN => {
-            let current =
-                with(|w| (w.ui.focus == Some(Target::Language)).then_some(w.model.language))
-                    .flatten();
-            let Some(current) = current else {
-                return false;
-            };
-            let next = if vk == VK_UP {
-                current.checked_sub(1)
-            } else {
-                Some(current + 1).filter(|i| *i < lang::LANGUAGES.len())
-            };
-            if let Some(next) = next {
-                super::run(Command::Language(next));
-            }
-            true
-        }
-        _ => false,
+    let (ctrl, shift) = (pressed(VK_CONTROL), pressed(VK_SHIFT));
+    let (handled, command) = with(|w| {
+        w.ensure_layout();
+        w.session.key(key, ctrl, shift, repeat)
+    })
+    .unwrap_or((false, None));
+    if let Some(command) = command {
+        super::run(command);
     }
+    handled
 }
 
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -772,8 +553,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             let height = ((lparam.0 >> 16) & 0xFFFF) as u32;
             with(|w| {
                 w.gfx.resize(width, height);
-                w.layout = None;
-                w.invalidate();
+                w.session.relayout();
             });
             LRESULT(0)
         }
@@ -782,8 +562,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             let suggested = unsafe { *(lparam.0 as *const RECT) };
             with(|w| {
                 w.gfx.set_dpi(new_dpi);
-                w.layout = None;
-                w.invalidate();
+                w.session.relayout();
             });
             unsafe {
                 let _ = SetWindowPos(
@@ -812,8 +591,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         WM_MOUSELEAVE => {
             with(|w| {
                 w.tracking = false;
-                w.mouse = None;
-                w.update_hover();
+                w.session.mouse_leave();
             });
             LRESULT(0)
         }
@@ -828,13 +606,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_CAPTURECHANGED => {
-            with(|w| {
-                w.drag = None;
-                w.ui.bar_drag = false;
-                w.ui.pressed = None;
-                w.update_hover();
-                w.invalidate();
-            });
+            with(|w| w.session.capture_lost());
             LRESULT(0)
         }
         WM_MOUSEWHEEL => {
@@ -860,16 +632,13 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
         WM_SYSCOMMAND if (wparam.0 as u32 & 0xFFF0) == SC_KEYMENU && lparam.0 == 0 => LRESULT(0),
         WM_ACTIVATE => {
             if (wparam.0 & 0xFFFF) as u32 == WA_INACTIVE {
-                with(|w| {
-                    w.ui.focus_visible = false;
-                    w.invalidate();
-                });
+                with(|w| w.session.deactivated());
             }
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }
         WM_SETTINGCHANGE => {
             if theme::is_immersive_color_set_change(lparam) {
-                retheme(hwnd);
+                retheme_window(hwnd);
             }
             unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
         }

@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::lang;
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
+use crate::theme::Theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseSizeError;
@@ -155,6 +156,7 @@ pub struct Config {
     pub install_updates: bool,
     pub last_update_check: u64,
     pub language: String,
+    pub theme: Theme,
     pub wrecktangle_colors: bool,
     pub block_windows_snap: bool,
 }
@@ -186,6 +188,8 @@ struct ConfigFile {
     last_update_check: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     language: Option<String>,
+    #[serde(default)]
+    theme: Option<String>,
     #[serde(default)]
     wrecktangle_colors: Option<bool>,
     #[serde(default)]
@@ -275,6 +279,11 @@ fn resolve(file: ConfigFile) -> Option<Config> {
             .language
             .filter(|code| lang::is_supported(code))
             .unwrap_or_default(),
+        // An unknown value follows the system, like an unknown language.
+        theme: file
+            .theme
+            .and_then(|code| Theme::from_code(&code))
+            .unwrap_or_default(),
         wrecktangle_colors: file.wrecktangle_colors.unwrap_or(false),
         block_windows_snap: file.block_windows_snap.unwrap_or(false),
     })
@@ -322,6 +331,7 @@ pub fn to_json_string(config: &Config) -> String {
         install_updates: Some(config.install_updates),
         last_update_check: Some(config.last_update_check),
         language: Some(config.language.clone()).filter(|code| !code.is_empty()),
+        theme: Some(config.theme.code().to_string()),
         wrecktangle_colors: Some(config.wrecktangle_colors),
         block_windows_snap: Some(config.block_windows_snap),
     };
@@ -331,8 +341,14 @@ pub fn to_json_string(config: &Config) -> String {
 // The app was called Wectangle before; its settings folder kept that name.
 const LEGACY_DIR: &str = "Wectangle";
 
+#[cfg(windows)]
 pub fn config_path() -> PathBuf {
     appdata().join("Wrecktangle").join("config.json")
+}
+
+#[cfg(not(windows))]
+pub fn config_path() -> PathBuf {
+    app_config_dir().join("config.json")
 }
 
 pub fn legacy_config_path() -> PathBuf {
@@ -341,6 +357,31 @@ pub fn legacy_config_path() -> PathBuf {
 
 fn appdata() -> PathBuf {
     PathBuf::from(std::env::var("APPDATA").expect("APPDATA must be set on Windows"))
+}
+
+/// `$XDG_CONFIG_HOME/wrecktangle`, which holds config.json and the record
+/// of the Xfce shortcuts Wrecktangle took over.
+#[cfg(not(windows))]
+pub fn app_config_dir() -> PathBuf {
+    xdg_config_home().join("wrecktangle")
+}
+
+#[cfg(not(windows))]
+pub fn xdg_config_home() -> PathBuf {
+    config_home_from(
+        std::env::var("XDG_CONFIG_HOME").ok().as_deref(),
+        std::env::var("HOME").ok().as_deref(),
+    )
+}
+
+/// XDG_CONFIG_HOME when it is an absolute path, as the spec requires, and
+/// `~/.config` otherwise.
+#[cfg(any(not(windows), test))]
+fn config_home_from(xdg_config_home: Option<&str>, home: Option<&str>) -> PathBuf {
+    match xdg_config_home.filter(|dir| dir.starts_with('/')) {
+        Some(dir) => PathBuf::from(dir),
+        None => PathBuf::from(home.unwrap_or("/")).join(".config"),
+    }
 }
 
 /// Copies the config from `legacy` to `path` when only the legacy one exists,
@@ -667,6 +708,28 @@ mod tests {
     }
 
     #[test]
+    fn theme_defaults_to_system_and_round_trips() {
+        assert_eq!(Config::defaults().theme, Theme::System);
+        assert!(to_json_string(&Config::defaults()).contains(r#""theme": "system""#));
+        for theme in Theme::ALL {
+            let mut config = Config::defaults();
+            config.theme = theme;
+            let (reloaded, source) = load_from_str(&to_json_string(&config));
+            assert_eq!(source, Source::Loaded);
+            assert_eq!(reloaded.theme, theme);
+        }
+    }
+
+    #[test]
+    fn unknown_theme_follows_the_system_and_a_wrong_type_is_invalid() {
+        let (config, source) = load_from_str(r#"{"theme": "sepia"}"#);
+        assert_eq!(source, Source::Loaded);
+        assert_eq!(config.theme, Theme::System);
+        let (_, source) = load_from_str(r#"{"theme": 1}"#);
+        assert_eq!(source, Source::Invalid);
+    }
+
+    #[test]
     fn block_windows_snap_defaults_off_and_round_trips() {
         assert!(!Config::defaults().block_windows_snap);
         let (config, source) = load_from_str(r#"{"block_windows_snap": true}"#);
@@ -802,5 +865,21 @@ mod tests {
         assert!(!path.exists());
 
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn config_home_follows_xdg_and_falls_back_to_dot_config() {
+        assert_eq!(
+            config_home_from(Some("/tmp/conf"), Some("/home/z")),
+            PathBuf::from("/tmp/conf")
+        );
+        assert_eq!(
+            config_home_from(Some("relative"), Some("/home/z")),
+            PathBuf::from("/home/z/.config")
+        );
+        assert_eq!(
+            config_home_from(None, Some("/home/z")),
+            PathBuf::from("/home/z/.config")
+        );
     }
 }

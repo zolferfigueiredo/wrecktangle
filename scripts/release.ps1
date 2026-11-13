@@ -4,7 +4,10 @@
 #                       0.4.1 (Cargo.toml, Cargo.lock, the README badge and
 #                       links). Merging dev into main then publishes it: the
 #                       Release workflow releases any version on main that
-#                       has no release yet.
+#                       has no release yet. A pre-release such as
+#                       0.9.0-beta.2 leaves the README on the latest release
+#                       and is published as a GitHub pre-release, which only
+#                       beta copies hear about.
 #   release.bat         Publishes the version on main by hand: checks CI
 #                       passed, tags v<version> on main and pushes the tag,
 #                       which starts the Release workflow. If that version is
@@ -57,6 +60,39 @@ $devToml = (Exec "git show" { git show origin/dev:Cargo.toml }) -join "`n"
 if ($devToml -notmatch '(?m)^version = "([^"]+)"') { Fail "Couldn't read the version from dev's Cargo.toml." }
 $devVersion = $Matches[1]
 
+# Compares two versions the way the update check does (src/update.rs): a
+# pre-release sorts below its release, and its dot-separated parts compare
+# as numbers when both are numbers. Returns -1, 0 or 1.
+function Compare-Version([string]$A, [string]$B) {
+    $aCore, $aPre = $A.Split([char[]]'-', 2)
+    $bCore, $bPre = $B.Split([char[]]'-', 2)
+    $core = ([version]$aCore).CompareTo([version]$bCore)
+    if ($core -ne 0) { return [Math]::Sign($core) }
+    if (-not $aPre -and -not $bPre) { return 0 }
+    if (-not $aPre) { return 1 }
+    if (-not $bPre) { return -1 }
+    $x = $aPre.Split('.')
+    $y = $bPre.Split('.')
+    for ($i = 0; $i -lt [Math]::Max($x.Count, $y.Count); $i++) {
+        if ($i -ge $x.Count) { return -1 }
+        if ($i -ge $y.Count) { return 1 }
+        $xn = [long]0
+        $yn = [long]0
+        $xNumber = [long]::TryParse($x[$i], [ref]$xn)
+        $yNumber = [long]::TryParse($y[$i], [ref]$yn)
+        if ($xNumber -and $yNumber) { $c = $xn.CompareTo($yn) }
+        elseif ($xNumber) { $c = -1 }
+        elseif ($yNumber) { $c = 1 }
+        else { $c = [string]::CompareOrdinal($x[$i], $y[$i]) }
+        if ($c -ne 0) { return [Math]::Sign($c) }
+    }
+    return 0
+}
+
+function Test-PreRelease([string]$Version) {
+    return $Version.Contains("-")
+}
+
 function Test-Tag([string]$Tag) {
     & git rev-parse --quiet --verify "refs/tags/$Tag" *> $null
     return $LASTEXITCODE -eq 0
@@ -84,10 +120,14 @@ function Set-ReadmeVersion([string]$Readme, [string]$Next) {
 }
 
 function New-Bump([string]$Next) {
-    if ($Next -notmatch '^\d+\.\d+\.\d+$') { Fail "'$Next' isn't a version like 0.4.1." }
-    if ([version]$Next -le [version]$devVersion) {
+    if ($Next -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z]+(\.[0-9A-Za-z]+)*)?$') {
+        Fail "'$Next' isn't a version like 0.4.1 or 0.9.0-beta.2."
+    }
+    if ((Compare-Version $Next $devVersion) -le 0) {
         Fail "$Next isn't newer than $devVersion, the version on dev."
     }
+    # The README keeps pointing at the latest release while a beta is out.
+    $preRelease = Test-PreRelease $Next
     if (Test-Tag "v$Next") { Fail "v$Next is already released." }
     $branch = "chore/bump-$Next"
     & git ls-remote --exit-code --heads origin $branch *> $null
@@ -96,6 +136,11 @@ function New-Bump([string]$Next) {
     Write-Host ""
     Write-Host "Bumping $devVersion -> $Next on a new branch from dev, $branch."
     if ($DryRun) {
+        if ($preRelease) {
+            Write-Host "Dry run: $Next is a pre-release, so the README would stay as it is."
+            Write-Host "Dry run: would change Cargo.toml and Cargo.lock, commit, push and open a pull request."
+            return
+        }
         $readme = Set-ReadmeVersion ((Exec "git show" { git show origin/dev:README.md }) -join "`n") $Next
         $problems = Get-ReadmeProblems $readme $Next
         if ($problems) { Fail ("README.md would need a hand edit: " + ($problems -join "; ") + ".") }
@@ -118,11 +163,13 @@ function New-Bump([string]$Next) {
     $toml = ([regex]'(?m)^version = "[^"]*"').Replace($toml, "version = `"$Next`"", 1)
     [IO.File]::WriteAllText($tomlPath, $toml, $utf8)
 
-    $readmePath = Join-Path (Get-Location) "README.md"
-    $readme = Set-ReadmeVersion ([IO.File]::ReadAllText($readmePath)) $Next
-    $problems = Get-ReadmeProblems $readme $Next
-    if ($problems) { Fail ("README.md needs a hand edit: " + ($problems -join "; ") + ".") }
-    [IO.File]::WriteAllText($readmePath, $readme, $utf8)
+    if (-not $preRelease) {
+        $readmePath = Join-Path (Get-Location) "README.md"
+        $readme = Set-ReadmeVersion ([IO.File]::ReadAllText($readmePath)) $Next
+        $problems = Get-ReadmeProblems $readme $Next
+        if ($problems) { Fail ("README.md needs a hand edit: " + ($problems -join "; ") + ".") }
+        [IO.File]::WriteAllText($readmePath, $readme, $utf8)
+    }
 
     Step "Updating Cargo.lock"
     Exec "cargo update" { cargo update --offline --quiet -p wrecktangle }
@@ -134,6 +181,9 @@ function New-Bump([string]$Next) {
 
     Step "Opening the pull request"
     $body = "Bumps the version from $devVersion to $Next in Cargo.toml, Cargo.lock, the README release badge and download links.`n`nAfter merging, merge dev into main: the Release workflow publishes $Next."
+    if ($preRelease) {
+        $body = "Bumps the version from $devVersion to $Next in Cargo.toml and Cargo.lock. It is a pre-release, so the README stays on the latest release.`n`nAfter merging, merge dev into main: the Release workflow publishes $Next as a GitHub pre-release, which only beta copies hear about."
+    }
     $url = Exec "gh pr create" { gh pr create --base dev --head $branch --title "Bump version to $Next" --body $body }
     if ($start) { & git switch --quiet $start }
 
@@ -147,9 +197,11 @@ function Publish {
     Write-Host ""
     Write-Host "main is at $short, version $mainVersion."
 
-    $readme = (Exec "git show" { git show origin/main:README.md }) -join "`n"
-    $problems = Get-ReadmeProblems $readme $mainVersion
-    if ($problems) { Fail ("main's README.md isn't ready: " + ($problems -join "; ") + ".") }
+    if (-not (Test-PreRelease $mainVersion)) {
+        $readme = (Exec "git show" { git show origin/main:README.md }) -join "`n"
+        $problems = Get-ReadmeProblems $readme $mainVersion
+        if ($problems) { Fail ("main's README.md isn't ready: " + ($problems -join "; ") + ".") }
+    }
 
     # Parsed here rather than with --jq: Windows PowerShell 5.1 splits
     # arguments that contain double quotes when it passes them to programs.

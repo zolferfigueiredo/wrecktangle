@@ -7,7 +7,7 @@
 <h3 align="center">Snap windows from the keyboard.</h3>
 
 <p align="center">
-  A Rectangle-style window manager for Windows, written in Rust.<br>
+  A Rectangle-style window manager for Windows and Linux (X11), written in Rust.<br>
   Send the focused window to a half, a corner or the center with one shortcut, and press it again to change its size.
 </p>
 
@@ -15,12 +15,15 @@
   <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><img src="https://img.shields.io/badge/release-v0.8.0-blue" alt="Latest release"></a>
   <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-2024%20edition-orange" alt="Rust 2024 edition"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011%20(x86%20%7C%20x64)-blue" alt="Windows 10 or 11, 32-bit or 64-bit">
+  <img src="https://img.shields.io/badge/Platform-Linux%20(X11)-blue" alt="Linux with X11">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow" alt="MIT license"></a>
   <a href="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml"><img src="https://github.com/zolferfigueiredo/wrecktangle/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
 </p>
 
 <p align="center">
   <a href="https://github.com/zolferfigueiredo/wrecktangle/releases/latest"><b>Download for Windows</b></a> (32-bit and 64-bit)
+  &nbsp;·&nbsp;
+  <a href="#on-linux">Install on Linux</a>
   &nbsp;·&nbsp;
   <a href="https://wrecktangle.zolfer.com">Website</a>
 </p>
@@ -51,6 +54,32 @@ Windows, take the
 or [32-bit zip](https://github.com/zolferfigueiredo/wrecktangle/releases/download/v0.8.0/Wrecktangle-0.8.0-x86.zip)
 instead. Uninstall it from Apps in Windows Settings.
 
+### On Linux
+
+Wrecktangle runs on Linux desktops that use X11, and is tested on Xfce
+(Linux Mint 22). Wayland is not supported: it doesn't let one app move
+another app's windows. There is no download for Linux yet; the install
+script builds it from source.
+
+1. Install Rust with [rustup](https://rustup.rs), then clone this repository.
+2. Run the install script. It builds Wrecktangle, puts it in `~/.local/bin`,
+   adds it to the menu and starts it:
+
+   ```sh
+   ./scripts/install-linux.sh
+   ```
+
+3. Open **Settings…** from the tray icon and turn on **Launch at startup**.
+
+Run the script again to update. `./scripts/uninstall-linux.sh` removes it
+and puts back the Xfce shortcuts it took over; your settings stay in
+`~/.config/wrecktangle`.
+
+Xfce already uses some of the default shortcuts, such as Ctrl+Alt+Left for
+switching workspaces. Wrecktangle takes those over while it runs: it turns
+the Xfce shortcut off, and back on when it quits. Settings shows which Xfce
+shortcut each one replaces.
+
 **Coming from Wectangle?** Wrecktangle used to be called Wectangle. On its
 first start it closes a running Wectangle, copies
 `%APPDATA%\Wectangle\config.json` to `%APPDATA%\Wrecktangle\config.json`, and
@@ -68,10 +97,11 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
   shortcut. **Display mode** gives the Windows Project menu (Win+P) a second
   shortcut of your choice that works like Win+P: keep its modifiers held and
   press the key again to move through the options, then let go of the
-  modifiers to pick one. Its row appears once 2 or more screens are connected,
-  and it has no shortcut until you set one.
-- **Can quiet Windows' Win+Arrow keys.** Turn on **Block Windows' Win+Arrow
-  keys** in Settings and Win+Arrow and Win+Shift+Arrow stop snapping,
+  modifiers to pick one. On Linux it opens Xfce's display dialog. Its row
+  appears once 2 or more screens are connected, and it has no shortcut until
+  you set one.
+- **Can quiet Windows' Win+Arrow keys.** On Windows, turn on **Block
+  Windows' Win+Arrow keys** in Settings and Win+Arrow and Win+Shift+Arrow stop snapping,
   maximizing, minimizing and moving windows. Shortcuts you set on those keys
   still work, and Win+Z is left alone.
 - **Lines up exactly.** Sizes use the window's visible frame, so snapped windows
@@ -79,18 +109,21 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
 - **Takes over busy shortcuts.** When Windows or another app already owns a
   chord, such as Alt+Win+Left, Wrecktangle takes it over instead of giving up,
   and Settings names the app it overrides, for example "Overrides PowerToys
-  Peek".
-- **A Windows 11 style Settings window.** Fluent design, following the light or
-  dark theme, with optional yellow highlights like the logo. Change any
-  shortcut, the size cycle or launch at startup, and every change applies as
-  you make it.
+  Peek". On Linux it does the same with Xfce's own shortcuts, for as long as
+  it runs.
+- **A Windows 11 style Settings window.** Fluent design, light or dark as you
+  choose or as the system is, in the system's accent color or with optional
+  yellow highlights like the logo. Change any shortcut, the size cycle or
+  launch at startup, and every change applies as you make it. On Linux the
+  tray icon is white or black to match the theme, like the panel's own icons.
 - **Speaks 12 languages.** Deutsch, English, Español, Français, Italiano,
   Polski, Português, Русский, Українська, 中文, 日本語 and 한국어. The first run
-  follows the Windows display language, and **Language** in Settings switches
+  follows the system's display language, and **Language** in Settings switches
   Settings, the tray menu and notifications at once.
-- **Tells you about updates.** It checks GitHub once a day or on demand, and a
-  notification links to the new installer. It never installs anything by
-  itself.
+- **Keeps itself up to date.** It checks GitHub once a day or on demand. The
+  installed Windows copy updates itself while **Install updates
+  automatically** is on; otherwise, and on Linux, a notification links to the
+  download.
 - **No admin rights.** Unless the window you want to move runs as administrator
   (see [Limitations](#limitations)).
 - **Lives in the tray.** Opening it again while it runs brings up Settings
@@ -114,7 +147,8 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
 | Previous display | Ctrl+Alt+Win+Left |
 | Display mode | Not set |
 
-Every shortcut can be changed in Settings, from the tray icon.
+Every shortcut can be changed in Settings, from the tray icon. On Linux, Win
+is the Super key, and Settings calls it Super.
 
 ## How it works
 
@@ -146,6 +180,14 @@ them.
   stop calling the hook, and taken-over shortcuts stop working until
   Wrecktangle restarts.
 
+On Linux, Wrecktangle grabs each shortcut from the X server. When Xfce
+already holds one, Wrecktangle removes that Xfce shortcut with
+`xfconf-query`, notes it in `~/.config/wrecktangle/xfce-takeover.json` and
+grabs the chord. It puts every one back when it quits, including on logout,
+and at the next start after a crash; the uninstall script does too. A chord
+another app holds can't be taken over, and Settings says "In use by another
+app". Ctrl+Alt+F1 to F12 and Ctrl+Alt+Backspace belong to the X server.
+
 </details>
 
 <details>
@@ -153,9 +195,19 @@ them.
 
 Wrecktangle asks `api.github.com` for the latest release of this repository 30
 seconds after it starts, if 24 hours have passed since the last check, and
-then every 24 hours. When a newer version exists, a tray notification says so
-and clicking it downloads the new installer in your browser. Wrecktangle never
-installs anything itself.
+then every 24 hours. When a newer version exists:
+
+- The installed Windows copy downloads the new installer, checks it against
+  the release's `SHA256SUMS`, runs it and starts again, while **Install
+  updates automatically** is on. Otherwise, and for the portable copy, a
+  notification links to the installer.
+- On Linux, a notification links to the release page. Run
+  `scripts/install-linux.sh` again to update.
+
+**Betas.** A beta, a version such as 0.9.0-beta.1, asks for every release,
+so it hears about newer betas and releases. Every other copy asks only for
+the latest release, which GitHub never sets to a beta, so it never hears
+about one.
 
 Turn the automatic check off with "Check for updates automatically" in the
 App section of Settings. The tray menu's "Check for updates..." and the
@@ -166,8 +218,10 @@ App section of Settings. The tray menu's "Check for updates..." and the
 <details>
 <summary><b>The settings file</b></summary>
 
-Settings are stored at `%APPDATA%\Wrecktangle\config.json`. It holds the size
+Settings are stored at `%APPDATA%\Wrecktangle\config.json`, or on Linux at
+`~/.config/wrecktangle/config.json` (the same format). It holds the size
 cycle, the shortcut assigned to each action, `language` (a two letter code),
+`theme` (`system`, `light` or `dark`; default `system`),
 `wrecktangle_colors` (default `false`), `block_windows_snap` (default
 `false`), `check_updates` (default `true`) and
 `last_update_check` (a Unix time in seconds, maintained by Wrecktangle).
@@ -179,6 +233,10 @@ change something in Settings.
 </details>
 
 ## Limitations
+
+- **Linux needs X11.** Wayland sessions are not supported. Xfce is tested;
+  other window managers that follow the EWMH standard should work, but
+  only Xfce's shortcuts can be taken over.
 
 - **Admin windows.** Windows running as administrator cannot be moved by a
   non-elevated Wrecktangle, because of UIPI. Wrecktangle detects this up front
@@ -213,6 +271,10 @@ cargo build --release
 target\release\wrecktangle.exe
 ```
 
+On Linux you only need Rust, since every dependency is written in Rust.
+`./run.sh` makes a debug build and (re)starts Wrecktangle, and
+`./run.sh --foreground` keeps it in the terminal with its output.
+
 Double-click `run.bat` to make a debug build of whatever changed and (re)start Wrecktangle, or
 `build.bat` to only build it. Both close a running Wrecktangle first, since it
 locks the exe. `installer.bat` builds the installer,
@@ -240,6 +302,11 @@ cargo, and `-DryRun` shows what it would do:
    version on `main` with no release yet, publishes it and tags the merged
    commit `v0.4.1`.
 
+A version with a pre-release part, such as `release.bat 0.9.0-beta.2`, is a
+beta: the README's badge and links stay on the latest release, and the
+Release workflow publishes it as a GitHub pre-release, which only betas hear
+about.
+
 Double-clicking `release.bat` publishes the version on `main` by hand if it
 isn't released yet (it checks that CI passed, asks you to confirm and pushes
 the tag), and otherwise asks for the next version. On a tag, the Release
@@ -261,14 +328,15 @@ Running the workflow by hand, or a pull request that changes it or
 workflow artifact.
 
 **CI** checks every pull request on Linux, cross-compiling for Windows:
-`cargo fmt --check`, `cargo test`, Clippy with warnings as errors, and a
-release build uploaded as a workflow artifact, `Wrecktangle-<version>-x64.exe`.
+`cargo fmt --check`, `cargo test`, Clippy with warnings as errors for Linux
+and both Windows architectures, and release builds uploaded as workflow
+artifacts, `Wrecktangle-<version>-x64.exe` and `Wrecktangle-<version>-x86_64-linux`.
 
 <details>
 <summary><b>Developer overrides</b></summary>
 
 - `WRECKTANGLE_THEME=light` or `dark` forces the theme of the Settings window
-  and menus instead of following Windows.
+  and menus, and of the Linux tray icon, over the Theme setting.
 - `WRECKTANGLE_UPDATE_URL` replaces the GitHub releases API URL for the update
   check, so a local server can stand in for GitHub. Plain `http://` is
   accepted only through this variable.
