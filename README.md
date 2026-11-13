@@ -120,9 +120,10 @@ moves the "Launch at startup" entry to the new exe. The old `wectangle.exe` and
   Polski, Português, Русский, Українська, 中文, 日本語 and 한국어. The first run
   follows the system's display language, and **Language** in Settings switches
   Settings, the tray menu and notifications at once.
-- **Tells you about updates.** It checks GitHub once a day or on demand, and a
-  notification links to the new installer, or on Linux to the release page.
-  It never installs anything by itself.
+- **Keeps itself up to date.** It checks GitHub once a day or on demand. The
+  installed Windows copy updates itself while **Install updates
+  automatically** is on; otherwise, and on Linux, a notification links to the
+  download.
 - **No admin rights.** Unless the window you want to move runs as administrator
   (see [Limitations](#limitations)).
 - **Lives in the tray.** Opening it again while it runs brings up Settings
@@ -194,9 +195,19 @@ app". Ctrl+Alt+F1 to F12 and Ctrl+Alt+Backspace belong to the X server.
 
 Wrecktangle asks `api.github.com` for the latest release of this repository 30
 seconds after it starts, if 24 hours have passed since the last check, and
-then every 24 hours. When a newer version exists, a tray notification says so
-and clicking it downloads the new installer in your browser. Wrecktangle never
-installs anything itself.
+then every 24 hours. When a newer version exists:
+
+- The installed Windows copy downloads the new installer, checks it against
+  the release's `SHA256SUMS`, runs it and starts again, while **Install
+  updates automatically** is on. Otherwise, and for the portable copy, a
+  notification links to the installer.
+- On Linux, a notification links to the release page. Run
+  `scripts/install-linux.sh` again to update.
+
+**Betas.** A beta, a version such as 0.9.0-beta.1, asks for every release,
+so it hears about newer betas and releases. Every other copy asks only for
+the latest release, which GitHub never sets to a beta, so it never hears
+about one.
 
 Turn the automatic check off with "Check for updates automatically" in the
 App section of Settings. The tray menu's "Check for updates..." and the
@@ -290,6 +301,11 @@ cargo, and `-DryRun` shows what it would do:
 2. Once that is merged, merge `dev` into `main`. The Release workflow sees a
    version on `main` with no release yet, publishes it and tags the merged
    commit `v0.4.1`.
+
+A version with a pre-release part, such as `release.bat 0.9.0-beta.2`, is a
+beta: the README's badge and links stay on the latest release, and the
+Release workflow publishes it as a GitHub pre-release, which only betas hear
+about.
 
 Double-clicking `release.bat` publishes the version on `main` by hand if it
 isn't released yet (it checks that CI passed, asks you to confirm and pushes

@@ -119,6 +119,13 @@ It has no `AppMutex`: its `[Code]` quits a running copy itself (`WM_CLOSE` to
 `WINDOW_CLASS_NAME` from `src/app.rs`, then waits on the mutex from
 `src/main.rs`), so those names must match too.
 
+A version with a pre-release part (`0.9.0-beta.1`) is a beta. The Release
+workflow publishes it as a GitHub pre-release, which `/releases/latest` never
+returns, so only a beta copy hears about it: `update::endpoint` asks a beta
+for the whole `/releases` list (`RELEASES_URL`) and `parse_release_list`
+picks the newest. The README keeps its badge and links on the latest release
+while a beta is out; CI and `release.ps1` skip the README check for one.
+
 Installed copies update themselves (`update::install`): the app downloads the
 release's installer, checks it against the release's `SHA256SUMS`, and runs
 it with `/VERYSILENT`. The installer closes the app and starts the new version
