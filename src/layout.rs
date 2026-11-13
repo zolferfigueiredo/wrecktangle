@@ -242,6 +242,96 @@ pub fn wrap_monitor_index(current: usize, count: usize, forward: bool) -> usize 
     }
 }
 
+/// The screen edge a panel reserves space at.
+#[cfg(any(not(windows), test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Edge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+/// Space a panel reserves, as X11's `_NET_WM_STRUT_PARTIAL` describes it:
+/// `size` pixels in from `edge` of the whole screen, along the pixels
+/// `start..=end` of the other axis.
+#[cfg(any(not(windows), test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Strut {
+    pub edge: Edge,
+    pub size: i32,
+    pub start: i32,
+    pub end: i32,
+}
+
+/// Struts from a `_NET_WM_STRUT_PARTIAL` value (left, right, top, bottom,
+/// then the start and end of each), or from the older four-value
+/// `_NET_WM_STRUT`, which spans whole edges.
+#[cfg(any(not(windows), test))]
+pub fn struts_from(values: &[u32]) -> Vec<Strut> {
+    const EDGES: [Edge; 4] = [Edge::Left, Edge::Right, Edge::Top, Edge::Bottom];
+    if values.len() < 4 {
+        return Vec::new();
+    }
+    let value = |i: usize| i32::try_from(values[i]).unwrap_or(i32::MAX);
+    EDGES
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| values[i] > 0)
+        .map(|(i, &edge)| {
+            let (start, end) = if values.len() >= 12 {
+                (value(4 + 2 * i), value(5 + 2 * i))
+            } else {
+                (0, i32::MAX)
+            };
+            Strut {
+                edge,
+                size: value(i),
+                start,
+                end,
+            }
+        })
+        .collect()
+}
+
+/// A monitor's work area: its bounds minus the struts that reach into it.
+/// `screen_w` and `screen_h` are the whole X screen's size, which struts
+/// are measured from.
+#[cfg(any(not(windows), test))]
+pub fn work_area(monitor: Rect, screen_w: i32, screen_h: i32, struts: &[Strut]) -> Rect {
+    let (mut left, mut top) = (monitor.x, monitor.y);
+    let (mut right, mut bottom) = (monitor.right(), monitor.bottom());
+    // A panel that sets no range (0 to 0) spans its whole edge.
+    let spans = |strut: &Strut, from: i32, to: i32| {
+        (strut.start == 0 && strut.end == 0) || (strut.start < to && strut.end >= from)
+    };
+    for strut in struts {
+        match strut.edge {
+            Edge::Left if spans(strut, monitor.y, monitor.bottom()) && strut.size > left => {
+                left = strut.size;
+            }
+            Edge::Right
+                if spans(strut, monitor.y, monitor.bottom()) && screen_w - strut.size < right =>
+            {
+                right = screen_w - strut.size;
+            }
+            Edge::Top if spans(strut, monitor.x, monitor.right()) && strut.size > top => {
+                top = strut.size;
+            }
+            Edge::Bottom
+                if spans(strut, monitor.x, monitor.right()) && screen_h - strut.size < bottom =>
+            {
+                bottom = screen_h - strut.size;
+            }
+            _ => {}
+        }
+    }
+    if right <= left || bottom <= top {
+        return monitor;
+    }
+    Rect::new(left, top, right - left, bottom - top)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -495,5 +585,97 @@ mod tests {
         assert_eq!(wrap_monitor_index(0, 2, false), 1);
         assert_eq!(wrap_monitor_index(1, 2, false), 0);
         assert_eq!(wrap_monitor_index(0, 1, true), 0);
+    }
+
+    #[test]
+    fn struts_read_partial_and_plain_values() {
+        assert_eq!(
+            struts_from(&[0, 0, 0, 33, 0, 0, 0, 0, 0, 0, 0, 1365]),
+            [Strut {
+                edge: Edge::Bottom,
+                size: 33,
+                start: 0,
+                end: 1365
+            }]
+        );
+        assert_eq!(
+            struts_from(&[40, 0, 0, 0]),
+            [Strut {
+                edge: Edge::Left,
+                size: 40,
+                start: 0,
+                end: i32::MAX
+            }]
+        );
+        assert!(struts_from(&[0, 0]).is_empty());
+    }
+
+    #[test]
+    fn a_bottom_panel_shortens_its_monitor() {
+        let monitor = Rect::new(0, 0, 1366, 768);
+        let struts = struts_from(&[0, 0, 0, 33, 0, 0, 0, 0, 0, 0, 0, 1365]);
+        assert_eq!(
+            work_area(monitor, 1366, 768, &struts),
+            Rect::new(0, 0, 1366, 735)
+        );
+    }
+
+    #[test]
+    fn struts_only_reach_the_monitors_they_span() {
+        // Two 1920x1080 screens side by side, a top panel on the right one
+        // and a left panel on the left one.
+        let left = Rect::new(0, 0, 1920, 1080);
+        let right = Rect::new(1920, 0, 1920, 1080);
+        let struts = [
+            Strut {
+                edge: Edge::Top,
+                size: 28,
+                start: 1920,
+                end: 3839,
+            },
+            Strut {
+                edge: Edge::Left,
+                size: 48,
+                start: 0,
+                end: 1079,
+            },
+        ];
+        assert_eq!(
+            work_area(left, 3840, 1080, &struts),
+            Rect::new(48, 0, 1872, 1080)
+        );
+        assert_eq!(
+            work_area(right, 3840, 1080, &struts),
+            Rect::new(1920, 28, 1920, 1052)
+        );
+    }
+
+    #[test]
+    fn a_bottom_panel_on_a_shorter_monitor_measures_from_the_screen_bottom() {
+        // A 1080 px screen beside a 768 px one: the screen is 1080 tall, so
+        // a panel at the bottom of the small one reserves 312 + 30 px.
+        let small = Rect::new(1920, 0, 1366, 768);
+        let struts = [Strut {
+            edge: Edge::Bottom,
+            size: 342,
+            start: 1920,
+            end: 3285,
+        }];
+        assert_eq!(
+            work_area(small, 3286, 1080, &struts),
+            Rect::new(1920, 0, 1366, 738)
+        );
+    }
+
+    #[test]
+    fn a_strut_that_would_leave_nothing_is_ignored() {
+        let monitor = Rect::new(0, 0, 800, 600);
+        let struts = [Strut {
+            edge: Edge::Top,
+            size: 700,
+            start: 0,
+            end: 0,
+        }];
+        assert_eq!(work_area(monitor, 800, 600, &struts), monitor);
     }
 }

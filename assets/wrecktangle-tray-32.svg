@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <clipPath id="window-clip"><rect x="8" y="11" width="23" height="20" rx="4"/></clipPath>
+    <mask id="window-cut" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32">
+      <rect width="32" height="32" fill="#FFFFFF"/>
+      <rect x="10" y="16" width="19" height="13" rx="2" fill="#000000"/>
+    </mask>
+    <mask id="bite" maskUnits="userSpaceOnUse" x="0" y="0" width="32" height="32">
+      <rect width="32" height="32" fill="#FFFFFF"/>
+      <circle cx="7" cy="10" r="8" fill="#000000"/>
+    </mask>
+  </defs>
+  <g mask="url(#bite)">
+    <rect x="8" y="11" width="23" height="20" rx="4" fill="#000000" mask="url(#window-cut)"/>
+    <circle cx="7" cy="10" r="9" fill="none" stroke="#000000" stroke-width="2" clip-path="url(#window-clip)"/>
+  </g>
+  <line x1="7" y1="10" x2="3.2" y2="0" stroke="#000000" stroke-width="2"/>
+  <circle cx="7" cy="10" r="6" fill="#000000"/>
+</svg>

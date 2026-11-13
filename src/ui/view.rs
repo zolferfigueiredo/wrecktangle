@@ -6,6 +6,7 @@
 use super::palette::{Palette, Rgba};
 use super::{IconGeometry, IconGlyph, IconShape, Rect, Scroll, Snap, layout_icon};
 use crate::lang;
+use crate::theme::Theme;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Page {
@@ -51,11 +52,17 @@ pub struct Model {
     pub rows: Vec<Row>,
     pub sizes: Vec<SizeOption>,
     pub language: usize,
+    pub theme: Theme,
     pub wrecktangle_colors: bool,
     pub startup: bool,
     pub auto_update: bool,
     pub auto_install: bool,
     pub block_windows_snap: bool,
+    /// Leaves out "Install updates automatically", which only an installed
+    /// Windows copy can do.
+    pub hide_auto_install: bool,
+    /// Leaves out the Windows shortcuts section (the Win+Arrow block).
+    pub hide_block_snap: bool,
     /// Screens connected, active or not; Display mode needs two.
     pub displays: usize,
     pub update_detail: String,
@@ -93,6 +100,7 @@ pub enum Target {
     Clear(usize),
     RestoreDefaults,
     Language,
+    Theme,
     Colors,
     Size(usize),
     Startup,
@@ -219,9 +227,6 @@ pub enum Item<T> {
         target: Target,
         rail: Rect,
         on: bool,
-        label: T,
-        label_x: f32,
-        label_y: f32,
     },
     Check {
         index: usize,
@@ -234,6 +239,7 @@ pub enum Item<T> {
         label_y: f32,
     },
     Combo {
+        target: Target,
         rect: Rect,
         label: T,
         label_x: f32,
@@ -725,9 +731,10 @@ fn place_pill_content<S: Shaper>(b: &mut Builder<S>, pill: PillSize<S::Text>, re
 }
 
 /// What sits at the right end of a setting row.
-enum Trailing {
+enum Trailing<'a> {
     Nothing,
-    Language,
+    /// A drop-down box showing its current choice.
+    Combo(Target, &'a str),
     Switch(Target, bool),
 }
 
@@ -742,29 +749,41 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
     y = b.card(x, y, w, |b, x, mut y, w| {
         y += setting_row(
             b,
-            model,
             x,
             y,
             w,
             &lang::t("general.language"),
             &lang::t("general.language_desc"),
-            Trailing::Language,
+            Trailing::Combo(
+                Target::Language,
+                lang::LANGUAGES
+                    .get(model.language)
+                    .map_or("", |language| language.name),
+            ),
         );
         y = b.divider(x, y, w);
         y += setting_row(
             b,
-            model,
+            x,
+            y,
+            w,
+            &lang::t("general.theme"),
+            &lang::t("general.theme_desc"),
+            Trailing::Combo(Target::Theme, &lang::t(model.theme.label_key())),
+        );
+        y = b.divider(x, y, w);
+        y += setting_row(
+            b,
             x,
             y,
             w,
             &lang::t("general.startup"),
-            &lang::t("general.startup_desc"),
+            &lang::format("general.startup_desc", &[("system", lang::SYSTEM)]),
             Trailing::Switch(Target::Startup, model.startup),
         );
         y = b.divider(x, y, w);
         y += setting_row(
             b,
-            model,
             x,
             y,
             w,
@@ -775,7 +794,6 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
         y = b.divider(x, y, w);
         y += setting_row(
             b,
-            model,
             x,
             y,
             w,
@@ -783,10 +801,12 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
             &lang::t("general.auto_update_desc"),
             Trailing::Switch(Target::AutoUpdate, model.auto_update),
         );
+        if model.hide_auto_install {
+            return y;
+        }
         y = b.divider(x, y, w);
         y + setting_row(
             b,
-            model,
             x,
             y,
             w,
@@ -796,25 +816,25 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
         )
     });
 
-    y = b.section_title("group.windows_shortcuts", x, y + 16.0, w);
-    y = b.card(x, y, w, |b, x, y, w| {
-        y + setting_row(
-            b,
-            model,
-            x,
-            y,
-            w,
-            &lang::t("general.block_snap"),
-            &lang::t("general.block_snap_desc"),
-            Trailing::Switch(Target::BlockSnap, model.block_windows_snap),
-        )
-    });
+    if !model.hide_block_snap {
+        y = b.section_title("group.windows_shortcuts", x, y + 16.0, w);
+        y = b.card(x, y, w, |b, x, y, w| {
+            y + setting_row(
+                b,
+                x,
+                y,
+                w,
+                &lang::t("general.block_snap"),
+                &lang::t("general.block_snap_desc"),
+                Trailing::Switch(Target::BlockSnap, model.block_windows_snap),
+            )
+        });
+    }
 
     y = b.section_title("group.window_sizes", x, y + 16.0, w);
     y = b.card(x, y, w, |b, x, mut y, w| {
         y += setting_row(
             b,
-            model,
             x,
             y,
             w,
@@ -830,10 +850,8 @@ fn general_page<S: Shaper>(b: &mut Builder<S>, model: &Model, width: f32) -> f32
 
 /// A title, an optional description and a trailing control; returns the
 /// row height.
-#[allow(clippy::too_many_arguments)]
 fn setting_row<S: Shaper>(
     b: &mut Builder<S>,
-    model: &Model,
     x: f32,
     y: f32,
     w: f32,
@@ -841,21 +859,10 @@ fn setting_row<S: Shaper>(
     description: &str,
     trailing: Trailing,
 ) -> f32 {
-    let switch_label = match trailing {
-        Trailing::Switch(_, on) => {
-            let key = if on { "switch.on" } else { "switch.off" };
-            Some(b.shape(&lang::t(key), BODY, f32::MAX, Wrap::Line))
-        }
-        _ => None,
-    };
-
     let (trailing_w, trailing_h) = match trailing {
         Trailing::Nothing => (0.0, 0.0),
-        Trailing::Language => (COMBO_W, COMBO_H),
-        Trailing::Switch(..) => {
-            let label = switch_label.as_ref().map_or((0.0, 0.0), |l| (l.w, l.h));
-            ((40.0 + 12.0 + label.0).ceil(), label.1.max(20.0))
-        }
+        Trailing::Combo(..) => (COMBO_W, COMBO_H),
+        Trailing::Switch(..) => (40.0, 20.0),
     };
 
     let text_w = w - 32.0 - 16.0 - trailing_w;
@@ -880,38 +887,22 @@ fn setting_row<S: Shaper>(
     let ty = y + (h - trailing_h) / 2.0;
     match trailing {
         Trailing::Nothing => {}
-        Trailing::Language => {
+        Trailing::Combo(target, choice) => {
             let rect = b.snap.rect(Rect::new(tx, ty, COMBO_W, COMBO_H));
-            let name = lang::LANGUAGES
-                .get(model.language)
-                .map_or("", |language| language.name);
-            let label = b.shape(name, BODY, COMBO_W - 22.0 - 8.0 - 12.0, Wrap::Ellipsis);
+            let label = b.shape(choice, BODY, COMBO_W - 22.0 - 8.0 - 12.0, Wrap::Ellipsis);
             b.items.push(Item::Combo {
+                target,
                 rect,
                 label: label.text,
                 label_x: rect.x + 11.0,
                 label_y: rect.y + (rect.h - label.h) / 2.0,
             });
-            b.hit(Target::Language, rect, true);
+            b.hit(target, rect, true);
         }
         Trailing::Switch(target, on) => {
-            let label = switch_label.expect("switch label");
-            let rect = b.snap.rect(Rect::new(tx, ty, trailing_w, trailing_h));
-            let rail = b.snap.rect(Rect::new(
-                rect.x,
-                rect.y + (rect.h - 20.0) / 2.0,
-                40.0,
-                20.0,
-            ));
-            b.items.push(Item::Switch {
-                target,
-                rail,
-                on,
-                label_x: rail.right() + 12.0,
-                label_y: rect.y + (rect.h - label.h) / 2.0,
-                label: label.text,
-            });
-            b.hit(target, rect, true);
+            let rail = b.snap.rect(Rect::new(tx, ty, trailing_w, trailing_h));
+            b.items.push(Item::Switch { target, rail, on });
+            b.hit(target, rail, true);
         }
     }
     h
@@ -1320,17 +1311,7 @@ impl<T: Clone> Painter<'_, T> {
             } => self.button(
                 *target, *rect, label, *label_x, *label_y, *primary, *enabled,
             ),
-            Item::Switch {
-                target,
-                rail,
-                on,
-                label,
-                label_x,
-                label_y,
-            } => {
-                self.switch(*target, *rail, *on);
-                self.text(label, *label_x, *label_y, fg);
-            }
+            Item::Switch { target, rail, on } => self.switch(*target, *rail, *on),
             Item::Check {
                 index,
                 rect,
@@ -1344,19 +1325,20 @@ impl<T: Clone> Painter<'_, T> {
                 *index, *rect, *mark, *checked, *enabled, label, *label_x, *label_y,
             ),
             Item::Combo {
+                target,
                 rect,
                 label,
                 label_x,
                 label_y,
             } => {
-                let pressed = self.ui.pressed(Target::Language);
+                let pressed = self.ui.pressed(*target);
                 let (bg, text, chevron) = if pressed {
                     (
                         p.control_alt_hover,
                         p.fluent_text_secondary,
                         p.fluent_text_tertiary,
                     )
-                } else if self.ui.hovered(Target::Language) {
+                } else if self.ui.hovered(*target) {
                     (p.control_hover, fg, p.fluent_text_secondary)
                 } else {
                     (p.control, fg, p.fluent_text_secondary)
@@ -1371,7 +1353,7 @@ impl<T: Clone> Painter<'_, T> {
                     width: 1.0,
                     color: chevron,
                 });
-                if self.ui.focused(Target::Language) {
+                if self.ui.focused(*target) {
                     self.focus_border(*rect, 3.0);
                 }
             }
@@ -1741,6 +1723,25 @@ mod tests {
     }
 
     #[test]
+    fn linux_leaves_out_the_windows_only_switches() {
+        let mut m = model();
+        m.page = Page::General;
+        m.hide_auto_install = true;
+        m.hide_block_snap = true;
+        let layout = lay(&m);
+        assert!(!layout.has_target(Target::AutoInstall));
+        assert!(!layout.has_target(Target::BlockSnap));
+        let order = layout.focus_order();
+        let at = |t: Target| order.iter().position(|o| o.0 == t).expect("target");
+        assert_eq!(at(Target::Size(0)), at(Target::AutoUpdate) + 1);
+        let title = lang::t("group.windows_shortcuts");
+        assert!(!layout.content.iter().any(|item| matches!(
+            item,
+            Item::Text { text, .. } if *text == title
+        )));
+    }
+
+    #[test]
     fn block_snap_switch_follows_the_model() {
         let mut m = model();
         m.page = Page::General;
@@ -1987,13 +1988,37 @@ mod tests {
     }
 
     #[test]
-    fn startup_then_colors_switches_sit_under_the_language_box() {
+    fn theme_box_then_startup_and_colors_switches_sit_under_the_language_box() {
         let mut m = model();
         m.page = Page::General;
         let order = lay(&m).focus_order();
         let at = |t: Target| order.iter().position(|o| o.0 == t).expect("target");
-        assert_eq!(at(Target::Startup), at(Target::Language) + 1);
+        assert_eq!(at(Target::Theme), at(Target::Language) + 1);
+        assert_eq!(at(Target::Startup), at(Target::Theme) + 1);
         assert_eq!(at(Target::Colors), at(Target::Startup) + 1);
+    }
+
+    #[test]
+    fn each_combo_shows_its_own_choice_and_states() {
+        let mut m = model();
+        m.page = Page::General;
+        m.theme = Theme::Dark;
+        let layout = lay(&m);
+        let combos: Vec<(Target, &String)> = layout
+            .content
+            .iter()
+            .filter_map(|item| match item {
+                Item::Combo { target, label, .. } => Some((*target, label)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            combos,
+            [
+                (Target::Language, &lang::LANGUAGES[0].name.to_string()),
+                (Target::Theme, &lang::t("theme.dark")),
+            ]
+        );
     }
 
     #[test]

@@ -93,6 +93,13 @@ pub const LANGUAGES: [Language; 12] = [
 
 const ENGLISH: usize = 1;
 
+/// The system's name in text such as "Reserved by {system}".
+pub const SYSTEM: &str = if cfg!(target_os = "linux") {
+    "Linux"
+} else {
+    "Windows"
+};
+
 static CURRENT: AtomicUsize = AtomicUsize::new(ENGLISH);
 static TABLES: OnceLock<Vec<HashMap<String, String>>> = OnceLock::new();
 
@@ -195,7 +202,30 @@ pub fn detect_system() -> &'static str {
 
 #[cfg(not(windows))]
 pub fn detect_system() -> &'static str {
-    "en"
+    let var = |name: &str| std::env::var(name).ok();
+    pick_supported(&locale_tags([
+        var("LANGUAGE").as_deref(),
+        var("LC_ALL").as_deref(),
+        var("LC_MESSAGES").as_deref(),
+        var("LANG").as_deref(),
+    ]))
+}
+
+/// The languages a Linux session asks for, in order of preference, from
+/// LANGUAGE (a colon-separated list), LC_ALL, LC_MESSAGES and LANG. "C" and
+/// "POSIX" name no language.
+#[cfg(any(not(windows), test))]
+pub fn locale_tags(vars: [Option<&str>; 4]) -> Vec<String> {
+    vars.into_iter()
+        .flatten()
+        .flat_map(|value| value.split(':'))
+        .map(str::trim)
+        .filter(|tag| {
+            let name = tag.split(['.', '@']).next().unwrap_or(tag);
+            !name.is_empty() && name != "C" && name != "POSIX"
+        })
+        .map(str::to_string)
+        .collect()
 }
 
 #[cfg(windows)]
@@ -394,5 +424,25 @@ mod tests {
         assert!(!set("xx"));
         assert!(is_supported("uk"));
         assert!(!is_supported("EN"));
+    }
+
+    #[test]
+    fn linux_locale_variables_give_the_languages_in_order() {
+        assert_eq!(
+            locale_tags([Some("pt_BR:en"), None, None, Some("en_US.UTF-8")]),
+            ["pt_BR", "en", "en_US.UTF-8"]
+        );
+        assert_eq!(
+            locale_tags([Some(""), Some("C"), Some("POSIX"), Some("de_DE.UTF-8")]),
+            ["de_DE.UTF-8"]
+        );
+        assert_eq!(
+            locale_tags([None, None, None, Some("C.UTF-8")]),
+            Vec::<String>::new()
+        );
+        assert_eq!(
+            pick_supported(&locale_tags([None, None, Some("uk_UA@euro"), Some("C")])),
+            "uk"
+        );
     }
 }

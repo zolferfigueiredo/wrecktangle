@@ -1,7 +1,7 @@
 #![windows_subsystem = "windows"]
-// Off Windows, the pure modules (config, lang, layout, owners, shortcut,
-// startup, takeover, theme, ui, update) are only exercised by `cargo test`;
-// nothing else in the crate calls them there.
+// The pure modules (config, lang, layout, owners, shortcut, startup,
+// takeover, theme, ui, update, xfce) carry Windows-only helpers that the
+// Linux build doesn't call.
 #![cfg_attr(not(windows), allow(dead_code))]
 
 #[cfg(windows)]
@@ -22,6 +22,15 @@ mod ui;
 mod update;
 #[cfg(windows)]
 mod window_ops;
+#[cfg(any(not(windows), test))]
+mod xfce;
+
+// The Linux build answers to the same module names as the Windows one, so
+// shared code such as `update` can call `crate::app` on both.
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+use linux::app;
 
 #[cfg(windows)]
 use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, LPARAM, WPARAM};
@@ -105,5 +114,10 @@ fn close_legacy_instance() {
     }
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn main() {
+    linux::run();
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 fn main() {}

@@ -31,6 +31,10 @@ use windows::core::{PCWSTR, PWSTR, w};
 
 const DEFAULT_URL: &str =
     "https://api.github.com/repos/zolferfigueiredo/wrecktangle/releases/latest";
+/// Every release, pre-releases included, newest first. A beta copy asks this
+/// one; GitHub never marks a pre-release as the latest release.
+const RELEASES_URL: &str =
+    "https://api.github.com/repos/zolferfigueiredo/wrecktangle/releases?per_page=30";
 const URL_OVERRIDE_VAR: &str = "WRECKTANGLE_UPDATE_URL";
 
 const BAD_REPLY: &str = "unexpected reply";
@@ -281,6 +285,10 @@ struct ReleaseJson {
     html_url: Option<String>,
     #[serde(default)]
     assets: Vec<AssetJson>,
+    #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    prerelease: bool,
 }
 
 #[derive(Deserialize)]
@@ -309,6 +317,31 @@ fn installer_name(tag: &str) -> String {
 
 pub fn parse_release(json: &str) -> Result<Release, &'static str> {
     let release: ReleaseJson = serde_json::from_str(json).map_err(|_| BAD_REPLY)?;
+    release_from(release)
+}
+
+/// The newest release in a `/releases` list, or None when there is none.
+/// Drafts never count, and pre-releases only when `pre_releases` is set,
+/// which it is for a copy that is a pre-release itself.
+pub fn parse_release_list(json: &str, pre_releases: bool) -> Result<Option<Release>, &'static str> {
+    let releases: Vec<ReleaseJson> = serde_json::from_str(json).map_err(|_| BAD_REPLY)?;
+    releases
+        .into_iter()
+        .filter(|release| !release.draft && (pre_releases || !release.prerelease))
+        .filter_map(|release| Some((parse_version(&release.tag_name)?, release)))
+        .max_by(|a, b| a.0.cmp(&b.0))
+        .map(|(_, release)| release_from(release))
+        .transpose()
+}
+
+/// Whether a version is a pre-release, such as 0.9.0-beta.1. Such a copy
+/// is on the beta channel: it hears about newer betas and releases, while
+/// other copies never hear about a beta.
+pub fn is_pre_release(version: &str) -> bool {
+    parse_version(version).is_some_and(|v| v.pre.is_some())
+}
+
+fn release_from(release: ReleaseJson) -> Result<Release, &'static str> {
     let asset_url = |name: &str| {
         release
             .assets
@@ -399,8 +432,15 @@ pub fn evaluate(status: u16, body: &str, current: &str, now: u64) -> State {
     match status {
         404 => State::NoReleases,
         200 => {
-            let release = match parse_release(body) {
-                Ok(release) => release,
+            // `/releases` answers with a list, `/releases/latest` with one.
+            let parsed = if body.trim_start().starts_with('[') {
+                parse_release_list(body, is_pre_release(current))
+            } else {
+                parse_release(body).map(Some)
+            };
+            let release = match parsed {
+                Ok(Some(release)) => release,
+                Ok(None) => return State::NoReleases,
                 Err(message) => return State::Failed(message.to_string()),
             };
             let Some(latest) = parse_version(&release.tag) else {
@@ -478,16 +518,23 @@ fn endpoint() -> Result<Url, String> {
     match url_override() {
         Some(value) => parse_url(&value, true)
             .ok_or_else(|| format!("{URL_OVERRIDE_VAR} is not a valid http or https URL")),
-        None => parse_url(DEFAULT_URL, false).ok_or_else(|| BAD_URL.to_string()),
+        None => {
+            let url = if is_pre_release(current_version()) {
+                RELEASES_URL
+            } else {
+                DEFAULT_URL
+            };
+            parse_url(url, false).ok_or_else(|| BAD_URL.to_string())
+        }
     }
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn auto_enabled() -> bool {
     crate::app::current_config().check_updates
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn set_auto(enabled: bool) {
     crate::app::update_config(|config| config.check_updates = enabled);
 }
@@ -502,12 +549,12 @@ pub fn set_auto_install(enabled: bool) {
     crate::app::update_config(|config| config.install_updates = enabled);
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn check_now() {
     start_check(false);
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 pub fn check_auto() {
     start_check(true);
 }
@@ -724,7 +771,7 @@ pub fn open_url(url: &str) {
 
 // Runs on the UI thread. The worker posts the result back instead of
 // touching any UI state itself.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "linux"))]
 fn start_check(auto: bool) {
     {
         let mut guard = STATE.lock().unwrap_or_else(PoisonError::into_inner);
@@ -734,7 +781,7 @@ fn start_check(auto: bool) {
         *guard = State::Checking;
     }
 
-    let hwnd = crate::app::main_hwnd().0 as isize;
+    let report = check_reporter();
     let spawned = std::thread::Builder::new()
         .name("update-check".to_string())
         .spawn(move || {
@@ -745,21 +792,36 @@ fn start_check(auto: bool) {
                 _ => 0,
             };
             set_state(result);
-            unsafe {
-                let _ = PostMessageW(
-                    Some(HWND(hwnd as *mut core::ffi::c_void)),
-                    crate::app::WM_APP_UPDATE_DONE,
-                    WPARAM(auto as usize),
-                    LPARAM(checked_at as isize),
-                );
-            }
+            report(auto, checked_at);
         });
     if spawned.is_err() {
         set_state(State::Failed(NOT_STARTED.to_string()));
     }
 }
 
+/// Tells the UI thread a check finished: whether it was automatic, and
+/// when it reached the server (0 when it didn't).
 #[cfg(windows)]
+fn check_reporter() -> impl Fn(bool, u64) + Send + 'static {
+    let hwnd = crate::app::main_hwnd().0 as isize;
+    move |auto, checked_at| unsafe {
+        let _ = PostMessageW(
+            Some(HWND(hwnd as *mut core::ffi::c_void)),
+            crate::app::WM_APP_UPDATE_DONE,
+            WPARAM(auto as usize),
+            LPARAM(checked_at as isize),
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn check_reporter() -> impl Fn(bool, u64) + Send + 'static {
+    |auto, checked_at| {
+        crate::linux::x11::post(crate::linux::x11::Message::UpdateDone { auto, checked_at })
+    }
+}
+
+#[cfg(any(windows, target_os = "linux"))]
 fn run_check() -> State {
     let url = match endpoint() {
         Ok(url) => url,
@@ -770,6 +832,86 @@ fn run_check() -> State {
         Ok((status, body)) => evaluate(status, &body, current_version(), now_unix()),
         Err(message) => State::Failed(message),
     }
+}
+
+/// A Linux copy is built from source by the install script, so it never
+/// replaces itself: an update opens the release page.
+#[cfg(target_os = "linux")]
+pub fn can_install() -> bool {
+    false
+}
+
+#[cfg(target_os = "linux")]
+pub fn should_install_now() -> bool {
+    false
+}
+
+#[cfg(target_os = "linux")]
+pub fn install() {
+    if let State::Available { url, .. } = state() {
+        open_url(&url);
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn open_url(url: &str) {
+    if is_openable_url(url) {
+        crate::linux::spawn("xdg-open", &[url]);
+    }
+}
+
+#[cfg(target_os = "linux")]
+const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
+
+/// Fetches the release JSON with curl, which follows the system's proxy
+/// settings and CA store. The status code comes after the body, on a line
+/// of its own.
+#[cfg(target_os = "linux")]
+fn fetch(url: &Url, agent: &str) -> Result<(u16, String), String> {
+    let scheme = if url.secure { "https" } else { "http" };
+    let address = format!("{scheme}://{}:{}{}", url.host, url.port, url.path);
+    let protocols = if url.secure { "=https" } else { "=http,https" };
+    let limit = MAX_BODY_BYTES.to_string();
+    let output = std::process::Command::new("curl")
+        .args([
+            "--silent",
+            "--location",
+            "--proto",
+            protocols,
+            "--proto-redir",
+            protocols,
+            "--max-time",
+            "15",
+            "--max-filesize",
+            &limit,
+            "--user-agent",
+            agent,
+            "--header",
+            "Accept: application/vnd.github+json",
+            "--write-out",
+            "\n%{http_code}",
+            &address,
+        ])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .map_err(|_| UNREACHABLE.to_string())?;
+    if !output.status.success() {
+        return Err(UNREACHABLE.to_string());
+    }
+    if output.stdout.len() > MAX_BODY_BYTES + 8 {
+        return Err(TOO_LARGE.to_string());
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let (body, code) = text.rsplit_once('\n').ok_or(BAD_REPLY)?;
+    let status = code
+        .trim()
+        .parse::<u16>()
+        .map_err(|_| BAD_REPLY.to_string())?;
+    if status == 0 {
+        return Err(UNREACHABLE.to_string());
+    }
+    Ok((status, body.to_string()))
 }
 
 #[cfg(windows)]
@@ -1121,6 +1263,61 @@ mod tests {
             evaluate(200, RELEASE_JSON, "1.0.0", 7),
             State::UpToDate { checked_at: 7 }
         );
+    }
+
+    fn release_list() -> String {
+        let release = |tag: &str, prerelease: bool, draft: bool| {
+            format!(
+                r#"{{"tag_name":"{tag}","html_url":"https://github.com/zolferfigueiredo/wrecktangle/releases/tag/{tag}","prerelease":{prerelease},"draft":{draft},"assets":[]}}"#
+            )
+        };
+        format!(
+            "[{},{},{},{}]",
+            release("v0.9.0-beta.10", true, true),
+            release("v0.9.0-beta.2", true, false),
+            release("v0.8.0", false, false),
+            release("v0.9.0-beta.1", true, false),
+        )
+    }
+
+    #[test]
+    fn only_versions_with_a_pre_release_part_are_betas() {
+        assert!(is_pre_release("0.9.0-beta.1"));
+        assert!(!is_pre_release("0.9.0"));
+        assert!(!is_pre_release("nonsense"));
+    }
+
+    #[test]
+    fn a_release_list_gives_the_newest_release_a_copy_may_see() {
+        let list = release_list();
+        let tag = |pre_releases| {
+            parse_release_list(&list, pre_releases)
+                .unwrap()
+                .map(|release| release.tag)
+        };
+        // The draft beta.10 never counts.
+        assert_eq!(tag(true).as_deref(), Some("v0.9.0-beta.2"));
+        assert_eq!(tag(false).as_deref(), Some("v0.8.0"));
+        assert_eq!(parse_release_list("[]", true), Ok(None));
+        assert!(parse_release_list("{}", true).is_err());
+    }
+
+    #[test]
+    fn a_beta_hears_about_newer_betas_and_a_release_does_not() {
+        let list = release_list();
+        assert!(matches!(
+            evaluate(200, &list, "0.9.0-beta.1", 1),
+            State::Available { version, .. } if version == "0.9.0-beta.2"
+        ));
+        assert_eq!(
+            evaluate(200, &list, "0.9.0-beta.2", 1),
+            State::UpToDate { checked_at: 1 }
+        );
+        assert_eq!(
+            evaluate(200, &list, "0.8.0", 1),
+            State::UpToDate { checked_at: 1 }
+        );
+        assert_eq!(evaluate(200, "[]", "0.9.0-beta.1", 1), State::NoReleases);
     }
 
     #[test]

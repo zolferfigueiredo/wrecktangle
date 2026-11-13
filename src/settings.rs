@@ -20,7 +20,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 use crate::config::{self, Config};
 use crate::layout::Action;
 use crate::shortcut::{self, Shortcut};
-use crate::ui::view::{Page, Row, SizeOption};
+use crate::theme::{self, Theme};
+use crate::ui::model;
+use crate::ui::session::Command;
+use crate::ui::view::Row;
 use crate::{app, lang, startup, takeover, update, window_ops};
 
 const MOD_BIT_CTRL: isize = 0x1;
@@ -33,26 +36,6 @@ enum HookPhase {
     Idle,
     Recording,
     SwallowingKeyUp(u16),
-}
-
-/// What the window asks for, run once it has let go of its state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Command {
-    Page(Page),
-    Record(usize),
-    Clear(usize),
-    RestoreDefaults,
-    LanguageMenu,
-    Language(usize),
-    SetColors(bool),
-    ToggleSize(usize),
-    SetStartup(bool),
-    SetAutoUpdate(bool),
-    SetAutoInstall(bool),
-    SetBlockSnap(bool),
-    CheckNow,
-    Update,
-    OpenUrl(&'static str),
 }
 
 thread_local! {
@@ -72,6 +55,7 @@ pub fn open() {
     window::show();
 }
 
+/// Runs what the window asked for, once it has let go of its state.
 fn run(command: Command) {
     match command {
         Command::Page(page) => {
@@ -98,6 +82,13 @@ fn run(command: Command) {
             }
         }
         Command::Language(index) => set_language(index),
+        Command::ThemeMenu => {
+            cancel_recording();
+            if let Some(index) = window::pick_theme(app::current_config().theme) {
+                set_theme(Theme::ALL[index]);
+            }
+        }
+        Command::SetTheme(theme) => set_theme(theme),
         Command::SetColors(on) => {
             app::update_config(|config| config.wrecktangle_colors = on);
             let on = app::current_config().wrecktangle_colors;
@@ -145,6 +136,7 @@ fn refresh_all() {
     let config = app::current_config();
     let displays = window_ops::connected_display_count();
     window::update(|m| {
+        m.theme = config.theme;
         m.wrecktangle_colors = config.wrecktangle_colors;
         m.block_windows_snap = config.block_windows_snap;
         m.displays = displays;
@@ -179,25 +171,19 @@ fn set_language(index: usize) {
     show_update_state();
 }
 
+fn set_theme(theme: Theme) {
+    app::update_config(|config| config.theme = theme);
+    let theme = app::current_config().theme;
+    window::update(|m| m.theme = theme);
+    window::retheme();
+    // The tray and other menus follow too.
+    theme::apply_dark_menu(theme::current_mode(theme) == theme::Mode::Dark);
+}
+
 fn show_update_state() {
     let state = update::state();
-    let version = lang::format("about.version", &[("version", update::current_version())]);
-    let detail = update::status_detail(&state);
-    let available = matches!(state, update::State::Available { .. });
     let installable = update::can_install();
-    let busy = matches!(
-        state,
-        update::State::Checking
-            | update::State::Downloading { .. }
-            | update::State::Installing { .. }
-    );
-    window::update(|m| {
-        m.about_version = version;
-        m.update_detail = detail;
-        m.update_available = available;
-        m.update_installable = installable;
-        m.update_busy = busy;
-    });
+    window::update(|m| model::show_update_state(m, &state, installable));
 }
 
 /// Refreshes the update row of an open Settings window.
@@ -209,28 +195,12 @@ pub fn on_update_state_changed() {
 
 fn shortcut_row(action: Action, hint: Option<&str>) -> Row {
     let sc = app::current_config().shortcuts.get(action);
-    let (note, warn) = match (app::shortcut_note(action), sc) {
-        (Some(note), _) => (note, false),
-        (None, Some(sc)) => match shortcut::altgr_char(&sc) {
-            Some(ch) => (
-                lang::format(
-                    "status.altgr",
-                    &[("char", &ch.to_string()), ("key", &shortcut::key_name(&sc))],
-                ),
-                true,
-            ),
-            None => (String::new(), false),
-        },
-        (None, None) => (String::new(), false),
+    let note = app::shortcut_note(action);
+    let altgr = match (&note, sc) {
+        (None, Some(sc)) => shortcut::altgr_char(&sc),
+        _ => None,
     };
-    Row {
-        label: lang::t(action.key()),
-        keys: sc.map(|sc| shortcut::key_caps(&sc)).unwrap_or_default(),
-        note,
-        warn,
-        recording: hint.is_some(),
-        hint: hint.unwrap_or_default().to_string(),
-    }
+    model::shortcut_row(action, sc, note, altgr, hint)
 }
 
 fn refresh_rows() {
@@ -251,18 +221,7 @@ fn show_row(index: usize, hint: Option<&str>) {
 }
 
 fn show_sizes() {
-    let sizes = app::current_config().sizes;
-    let checks = config::size_checks(&sizes);
-    let checked_count = checks.iter().filter(|checked| **checked).count();
-    let options: Vec<SizeOption> = config::SIZE_OPTIONS
-        .iter()
-        .enumerate()
-        .map(|(index, label)| SizeOption {
-            label: label.to_string(),
-            checked: checks[index],
-            locked: checks[index] && checked_count == 1,
-        })
-        .collect();
+    let options = model::size_options(&app::current_config().sizes);
     window::update(|m| m.sizes = options);
 }
 
@@ -439,11 +398,6 @@ pub fn on_recorder_key(vk: u16, mods: isize) {
         takeover::inject_dummy_key();
     }
 
-    if !(ctrl || alt || win) {
-        show_row(index, Some(&lang::t("recorder.needs_modifier")));
-        return;
-    }
-
     let candidate = Shortcut {
         ctrl,
         alt,
@@ -451,21 +405,12 @@ pub fn on_recorder_key(vk: u16, mods: isize) {
         win,
         vk,
     };
-
     let mut config = app::current_config();
-    let duplicate = Action::ALL
-        .iter()
-        .enumerate()
-        .find(|&(i, a)| i != index && config.shortcuts.get(*a) == Some(candidate))
-        .map(|(_, a)| lang::t(a.key()));
-    if let Some(label) = duplicate {
-        show_row(
-            index,
-            Some(&lang::format("recorder.duplicate", &[("action", &label)])),
-        );
-        return;
+    match model::check_recorded(index, candidate, &config.shortcuts) {
+        Ok(sc) => {
+            config.shortcuts.set(Action::ALL[index], Some(sc));
+            commit(config);
+        }
+        Err(hint) => show_row(index, Some(&hint)),
     }
-
-    config.shortcuts.set(Action::ALL[index], Some(candidate));
-    commit(config);
 }

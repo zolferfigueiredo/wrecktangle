@@ -127,7 +127,15 @@ pub fn parse(input: &str) -> Result<Shortcut, ParseShortcutError> {
     })
 }
 
-fn parts(shortcut: &Shortcut) -> Vec<String> {
+/// What the Win key is called on this system. Only display text uses it:
+/// `format` always writes "Win", so a config.json works on both systems.
+pub const WIN_LABEL: &str = if cfg!(target_os = "linux") {
+    "Super"
+} else {
+    "Win"
+};
+
+fn parts(shortcut: &Shortcut, win_label: &str) -> Vec<String> {
     let mut parts = Vec::with_capacity(5);
     if shortcut.ctrl {
         parts.push("Ctrl".to_string());
@@ -139,18 +147,24 @@ fn parts(shortcut: &Shortcut) -> Vec<String> {
         parts.push("Shift".to_string());
     }
     if shortcut.win {
-        parts.push("Win".to_string());
+        parts.push(win_label.to_string());
     }
     parts.push(key_name(shortcut));
     parts
 }
 
+/// The shortcut as config.json stores it.
 pub fn format(shortcut: &Shortcut) -> String {
-    parts(shortcut).join("+")
+    parts(shortcut, "Win").join("+")
+}
+
+/// The shortcut as Settings and notifications show it.
+pub fn display(shortcut: &Shortcut) -> String {
+    parts(shortcut, WIN_LABEL).join("+")
 }
 
 pub fn key_caps(shortcut: &Shortcut) -> Vec<String> {
-    let mut caps = parts(shortcut);
+    let mut caps = parts(shortcut, WIN_LABEL);
     let arrow = match shortcut.vk {
         0x25 => Some("\u{2190}"),
         0x26 => Some("\u{2191}"),
@@ -166,6 +180,82 @@ pub fn key_caps(shortcut: &Shortcut) -> Vec<String> {
 
 pub fn key_name(shortcut: &Shortcut) -> String {
     lookup_name(shortcut.vk).unwrap_or_else(|| format!("VK_{:#X}", shortcut.vk))
+}
+
+/// X11 keysyms for the keys a shortcut can use. `Shortcut::vk` stays the
+/// key's id on every system, so config.json is the same everywhere; X11
+/// grabs and key events go through this table.
+#[cfg(any(not(windows), test))]
+pub mod keysym {
+    fn table() -> Vec<(u16, u32)> {
+        let mut table = Vec::with_capacity(96);
+        // Letters map to the lowercase keysym an unshifted key reports.
+        for i in 0..26u16 {
+            table.push((0x41 + i, 0x61 + u32::from(i)));
+        }
+        for i in 0..10u16 {
+            table.push((0x30 + i, 0x30 + u32::from(i)));
+        }
+        for i in 0..24u16 {
+            table.push((0x70 + i, 0xFFBE + u32::from(i)));
+        }
+        for i in 0..10u16 {
+            table.push((0x60 + i, 0xFFB0 + u32::from(i)));
+        }
+        table.extend([
+            (0x25, 0xFF51),
+            (0x26, 0xFF52),
+            (0x27, 0xFF53),
+            (0x28, 0xFF54),
+            (0x0D, 0xFF0D),
+            (0x20, 0x0020),
+            (0x09, 0xFF09),
+            (0x08, 0xFF08),
+            (0x2E, 0xFFFF),
+            (0x2D, 0xFF63),
+            (0x24, 0xFF50),
+            (0x23, 0xFF57),
+            (0x21, 0xFF55),
+            (0x22, 0xFF56),
+            (0xBA, 0x003B),
+            (0xBB, 0x003D),
+            (0xBC, 0x002C),
+            (0xBD, 0x002D),
+            (0xBE, 0x002E),
+            (0xBF, 0x002F),
+            (0xC0, 0x0060),
+            (0xDB, 0x005B),
+            (0xDC, 0x005C),
+            (0xDD, 0x005D),
+            (0xDE, 0x0027),
+        ]);
+        table
+    }
+
+    pub fn from_vk(vk: u16) -> Option<u32> {
+        table().into_iter().find(|(v, _)| *v == vk).map(|(_, k)| k)
+    }
+
+    pub fn to_vk(keysym: u32) -> Option<u16> {
+        let keysym = match keysym {
+            // Uppercase letters, as a key reports them with Shift held.
+            0x41..=0x5A => keysym + 0x20,
+            // Shift+Tab.
+            0xFE20 => 0xFF09,
+            // The keypad with NumLock off: KP_Home 7, KP_Left 4, KP_Up 8,
+            // KP_Right 6, KP_Down 2, KP_Prior 9, KP_Next 3, KP_End 1,
+            // KP_Begin 5, KP_Insert 0.
+            0xFF95..=0xFF9E => {
+                const DIGITS: [u32; 10] = [7, 4, 8, 6, 2, 9, 3, 1, 5, 0];
+                0xFFB0 + DIGITS[(keysym - 0xFF95) as usize]
+            }
+            other => other,
+        };
+        table()
+            .into_iter()
+            .find(|(_, k)| *k == keysym)
+            .map(|(v, _)| v)
+    }
 }
 
 #[cfg(windows)]
@@ -249,7 +339,7 @@ mod tests {
     #[test]
     fn key_caps_split_modifiers_and_draw_arrows() {
         let s = parse("Ctrl+Alt+Win+Left").unwrap();
-        assert_eq!(key_caps(&s), ["Ctrl", "Alt", "Win", "\u{2190}"]);
+        assert_eq!(key_caps(&s), ["Ctrl", "Alt", WIN_LABEL, "\u{2190}"]);
         let s = parse("Ctrl+Alt+Home").unwrap();
         assert_eq!(key_caps(&s), ["Ctrl", "Alt", "Home"]);
     }
@@ -313,5 +403,39 @@ mod tests {
     fn parses_oem_punctuation() {
         assert_eq!(parse("Ctrl+Alt+;").unwrap().vk, 0xBA);
         assert_eq!(parse("Ctrl+Alt+,").unwrap().vk, 0xBC);
+    }
+
+    #[test]
+    fn display_names_the_win_key_for_this_system_but_config_keeps_win() {
+        let s = parse("Ctrl+Super+Left").unwrap();
+        assert_eq!(format(&s), "Ctrl+Win+Left");
+        assert_eq!(display(&s), format!("Ctrl+{WIN_LABEL}+Left"));
+    }
+
+    #[test]
+    fn every_named_key_has_a_keysym_that_maps_back() {
+        for (name, vk) in key_name_table() {
+            let sym = keysym::from_vk(vk).unwrap_or_else(|| panic!("{name} has no keysym"));
+            assert_eq!(keysym::to_vk(sym), Some(vk), "{name}");
+        }
+    }
+
+    #[test]
+    fn keysyms_of_common_keys() {
+        assert_eq!(keysym::from_vk(0x25), Some(0xFF51));
+        assert_eq!(keysym::from_vk(0x46), Some(0x66));
+        assert_eq!(keysym::from_vk(0x0D), Some(0xFF0D));
+        assert_eq!(keysym::from_vk(0x87), Some(0xFFD5));
+        assert_eq!(keysym::from_vk(0xFF), None);
+    }
+
+    #[test]
+    fn shifted_and_keypad_keysyms_map_to_their_keys() {
+        assert_eq!(keysym::to_vk(0x46), Some(0x46));
+        assert_eq!(keysym::to_vk(0xFE20), Some(0x09));
+        assert_eq!(keysym::to_vk(0xFF99), Some(0x62));
+        assert_eq!(keysym::to_vk(0xFF9E), Some(0x60));
+        assert_eq!(keysym::to_vk(0xFF95), Some(0x67));
+        assert_eq!(keysym::to_vk(0xFFE9), None);
     }
 }

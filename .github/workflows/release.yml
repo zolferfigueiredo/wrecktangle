@@ -148,8 +148,13 @@ jobs:
       # On a push to main this also makes the v tag, on the commit that was
       # built.
       - name: Publish the release
+        # A version with a pre-release part (0.9.0-beta.1) is published as a
+        # pre-release. GitHub never makes one the latest release, so only
+        # beta copies, which list every release, hear about it.
         run: |
-          gh release create "v$V" \
+          prerelease=""
+          case "$V" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "v$V" $prerelease \
             "dist/Wrecktangle-$V-x64-setup.exe" \
             "dist/Wrecktangle-$V-x64.zip" \
             "dist/Wrecktangle-$V-x86-setup.exe" \

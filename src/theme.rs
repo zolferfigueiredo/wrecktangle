@@ -1,6 +1,6 @@
-//! Light/dark mode detection and the Win32 glue that applies it to menus and
-//! the Settings window's title bar (Windows-only). The Settings colors are in
-//! `ui::palette`.
+//! The Theme setting, light/dark mode detection, and the Win32 glue that
+//! applies the mode to menus and the Settings window's title bar
+//! (Windows-only). The Settings colors are in `ui::palette`.
 
 #[cfg(windows)]
 use windows::Win32::Foundation::{HWND, LPARAM};
@@ -22,6 +22,45 @@ use windows::core::{BOOL, PCSTR, PCWSTR, w};
 pub enum Mode {
     Light,
     Dark,
+}
+
+/// The Theme setting: follow the system, or always light or dark.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+impl Theme {
+    /// In the order the Theme box lists them.
+    pub const ALL: [Theme; 3] = [Theme::System, Theme::Light, Theme::Dark];
+
+    /// The value stored in config.json.
+    pub fn code(self) -> &'static str {
+        match self {
+            Theme::System => "system",
+            Theme::Light => "light",
+            Theme::Dark => "dark",
+        }
+    }
+
+    pub fn from_code(code: &str) -> Option<Theme> {
+        Theme::ALL.into_iter().find(|theme| theme.code() == code)
+    }
+
+    pub fn label_key(self) -> &'static str {
+        match self {
+            Theme::System => "theme.system",
+            Theme::Light => "theme.light",
+            Theme::Dark => "theme.dark",
+        }
+    }
+
+    pub fn index(self) -> usize {
+        Theme::ALL.iter().position(|t| *t == self).unwrap_or(0)
+    }
 }
 
 #[cfg(windows)]
@@ -52,9 +91,9 @@ fn system_prefers_light() -> bool {
     .unwrap_or(true)
 }
 
-// `WRECKTANGLE_THEME=light|dark` overrides the system theme, so both themes
-// can be exercised without changing Windows settings. Checked first on
-// every platform, since it needs no OS call.
+// `WRECKTANGLE_THEME=light|dark` overrides the Theme setting and the system
+// theme, so both themes can be exercised without changing either. Checked
+// first on every platform, since it needs no OS call.
 pub fn override_mode() -> Option<Mode> {
     match std::env::var("WRECKTANGLE_THEME")
         .ok()?
@@ -67,22 +106,39 @@ pub fn override_mode() -> Option<Mode> {
     }
 }
 
-pub fn current_mode() -> Mode {
+/// The mode for the Theme setting. Safe from any thread.
+pub fn current_mode(theme: Theme) -> Mode {
     if let Some(mode) = override_mode() {
         return mode;
     }
-    #[cfg(windows)]
-    {
-        if system_prefers_light() {
-            Mode::Light
-        } else {
-            Mode::Dark
-        }
+    match theme {
+        Theme::Light => Mode::Light,
+        Theme::Dark => Mode::Dark,
+        Theme::System => system_mode(),
     }
-    #[cfg(not(windows))]
-    {
+}
+
+#[cfg(windows)]
+fn system_mode() -> Mode {
+    if system_prefers_light() {
+        Mode::Light
+    } else {
         Mode::Dark
     }
+}
+
+#[cfg(target_os = "linux")]
+fn system_mode() -> Mode {
+    if crate::linux::desktop::prefers_light() {
+        Mode::Light
+    } else {
+        Mode::Dark
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn system_mode() -> Mode {
+    Mode::Dark
 }
 
 /// Sets the window's title bar to dark or light immersive mode. It calls
@@ -197,12 +253,13 @@ mod tests {
         unsafe {
             std::env::set_var("WRECKTANGLE_THEME", "light");
         }
-        assert_eq!(current_mode(), Mode::Light);
+        assert_eq!(current_mode(Theme::Dark), Mode::Light);
 
         unsafe {
             std::env::set_var("WRECKTANGLE_THEME", "dark");
         }
-        assert_eq!(current_mode(), Mode::Dark);
+        assert_eq!(current_mode(Theme::Light), Mode::Dark);
+        assert_eq!(current_mode(Theme::System), Mode::Dark);
 
         unsafe {
             std::env::set_var("WRECKTANGLE_THEME", "LIGHT");
@@ -218,5 +275,19 @@ mod tests {
             std::env::remove_var("WRECKTANGLE_THEME");
         }
         assert_eq!(override_mode(), None);
+        assert_eq!(current_mode(Theme::Light), Mode::Light);
+        assert_eq!(current_mode(Theme::Dark), Mode::Dark);
+    }
+
+    #[test]
+    fn theme_codes_round_trip_in_box_order() {
+        assert_eq!(Theme::default(), Theme::System);
+        for (index, theme) in Theme::ALL.into_iter().enumerate() {
+            assert_eq!(Theme::from_code(theme.code()), Some(theme));
+            assert_eq!(theme.index(), index);
+            assert!(theme.label_key().starts_with("theme."));
+        }
+        assert_eq!(Theme::from_code("Dark"), None);
+        assert_eq!(Theme::from_code(""), None);
     }
 }

@@ -1,6 +1,7 @@
 # Wrecktangle
 
-A Rectangle-style keyboard window manager for Windows, in Rust.
+A Rectangle-style keyboard window manager for Windows and Linux (X11), in
+Rust.
 
 ## Build and test
 
@@ -8,6 +9,8 @@ A Rectangle-style keyboard window manager for Windows, in Rust.
 - Lint: `cargo clippy --all-targets -- -D warnings`
 - Test: `cargo test`
 - Build: `cargo build --release`
+- Linux: `./run.sh` builds and (re)starts it; `scripts/install-linux.sh`
+  installs it into `~/.local`.
 
 ## Invariants
 
@@ -29,25 +32,66 @@ A Rectangle-style keyboard window manager for Windows, in Rust.
   `thread_local` state and only posts a message to the main window.
 - Pure modules (`config`, `lang`, `layout`, `owners`, `shortcut`,
   `startup`, `takeover`, `theme`, `ui`, `update`) are declared unconditionally in
-  `main.rs`, with Win32 code behind `#[cfg(windows)]` inside them, because CI
-  runs `cargo test` on Linux without the `windows` crate.
-- The Settings window keeps its layout and painting in `ui::view` (pure,
-  tested on Linux); `settings/window.rs` and `settings/gfx.rs` only handle
-  Win32 messages and draw its operations with Direct2D.
+  `main.rs`, with Win32 code behind `#[cfg(windows)]` and Linux code behind
+  `#[cfg(target_os = "linux")]` (or `not(windows)`) inside them, because CI
+  runs `cargo test` on Linux without the `windows` crate. `xfce` is pure too,
+  declared for `any(not(windows), test)`. A pure item only one system uses
+  needs such a `cfg`, or Clippy fails the other system's build on dead code.
+- The Settings window keeps its layout and painting in `ui::view`, what the
+  pointer and keys do in `ui::session`, and the model's rows in `ui::model`
+  (all pure, tested on Linux). `settings/window.rs` and `settings/gfx.rs`
+  (Win32, Direct2D) and `linux/settings/window.rs` and
+  `linux/settings/gfx.rs` (X11, tiny-skia, cosmic-text) only translate
+  events and draw the operations.
+- The Linux build lives in `src/linux/` and answers to the same module names
+  as the Windows one (`crate::app` is `linux::app` there), so shared code
+  such as `update` calls the same functions on both.
+- On X11 the visible frame is the client window plus `_NET_FRAME_EXTENTS`
+  (the window manager's decorations) minus `_GTK_FRAME_EXTENTS` (a CSD
+  window's invisible shadow), as `linux/window_ops.rs` `visible_from` does.
+  Never tile the client rect alone.
+- On Linux only the main thread reads X events or touches app state. Other
+  threads (tray, notifications, update check, timer, signals) post a
+  ClientMessage with `x11::post`. The desktop theme watchers in
+  `linux/desktop.rs` read their own X connection and the session bus, and
+  reach an open Settings window with `settings::desktop_changed`. A process that messages a running copy
+  (a second start, `--quit`) makes a round trip before it exits, or the X
+  server can drop the message.
+- The Xfce takeover (`linux/app.rs` `register_all`, `linux/xfconf.rs`)
+  records each Xfce binding it removes in
+  `~/.config/wrecktangle/xfce-takeover.json` before grabbing the chord, and
+  puts it back on quit, SIGTERM/SIGHUP/SIGINT, X connection loss, the next
+  start, and in `scripts/uninstall-linux.sh` (`--restore-xfce-shortcuts`).
+  Ungrab before restoring, or Xfce can't grab the key back.
+- `config.json` writes the Win key as "Win" on every system; only display
+  text uses `shortcut::WIN_LABEL` ("Super" on Linux) through
+  `shortcut::display` and `key_caps`.
 - Owner lookups (`src/owners.rs`) read hotkey fields only. Never read, log or
   store other keys from those files (Twinkle Tray `udpKey`, tokens in the
   Claude config).
 - The app was called Wectangle before. That name stays on purpose in the
   migration code only: `LEGACY_DIR` (`config.rs`), `LEGACY_VALUE_NAME`
   (`startup.rs`) and `close_legacy_instance` (`main.rs`). Don't rename them.
-- `assets/wrecktangle.ico` and `assets/wrecktangle-256.png` are generated:
-  edit `assets/wrecktangle.svg` (40 px and up) or `assets/wrecktangle-16.svg`
-  to `-32.svg` (pixel-snapped tray sizes), then run
-  `cargo run --example make_icon`. A design change belongs in all five SVGs.
+- `assets/wrecktangle.ico`, `assets/wrecktangle-256.png`, the Linux window
+  icons `assets/wrecktangle-32.png` to `-64.png` and the Linux tray icons
+  `assets/wrecktangle-tray-white-16.png` to `-tray-black-64.png` are
+  generated: edit `assets/wrecktangle.svg` (40 px and up) or
+  `assets/wrecktangle-16.svg` to `-32.svg` (pixel-snapped small sizes) for
+  the logo, or `assets/wrecktangle-tray.svg` and `-tray-16.svg` to
+  `-tray-32.svg` for the one-color tray icon (drawn black; the white one is
+  made from it), then run `cargo run --example make_icon`. A design change
+  belongs in all five SVGs of its set.
+- The Theme setting (`theme::Theme`) picks the mode through
+  `theme::current_mode`. Its System choice on Linux, and the accent there
+  when Wrecktangle colors are off, come from `linux/desktop.rs`: the
+  portal's `org.freedesktop.appearance` `color-scheme` and `accent-color`
+  first, then the GTK theme named in XSETTINGS (`Net/ThemeName` containing
+  "dark") and its gtk.css selection color.
 
 ## Developer overrides
 
-- `WRECKTANGLE_THEME=light|dark` forces the Settings and menu theme.
+- `WRECKTANGLE_THEME=light|dark` forces the Settings and menu theme, and
+  the Linux tray icon's, over the Theme setting.
 - `WRECKTANGLE_UPDATE_URL` replaces the GitHub releases API URL for the update
   check; plain `http://` is accepted only through it. Use it with a local
   server. A second `wrecktangle.exe` does not start: it only opens Settings in

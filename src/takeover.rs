@@ -69,13 +69,31 @@ pub fn matches(shortcut: &Shortcut, mods: Mods, vk: u16) -> bool {
         && shortcut.win == mods.win()
 }
 
+pub fn is_reserved(shortcut: &Shortcut) -> bool {
+    if cfg!(target_os = "linux") {
+        reserved_on_x11(shortcut)
+    } else {
+        reserved_on_windows(shortcut)
+    }
+}
+
 // Win+L and Ctrl+Alt+Del are acted on by Windows before any keyboard hook
 // sees them, so a hook cannot take them over.
-pub fn is_reserved(shortcut: &Shortcut) -> bool {
+fn reserved_on_windows(shortcut: &Shortcut) -> bool {
     let lock =
         shortcut.win && !shortcut.ctrl && !shortcut.alt && !shortcut.shift && shortcut.vk == VK_L;
     let secure_attention = shortcut.ctrl && shortcut.alt && shortcut.vk == VK_DELETE;
     lock || secure_attention
+}
+
+// The X server acts on Ctrl+Alt+F1 to F12 (switch to a text console) and
+// Ctrl+Alt+Backspace (end the session, where it is turned on) itself, so a
+// grab of them never fires.
+fn reserved_on_x11(shortcut: &Shortcut) -> bool {
+    const F1: u16 = 0x70;
+    const F12: u16 = 0x7B;
+    const BACKSPACE: u16 = 0x08;
+    shortcut.ctrl && shortcut.alt && ((F1..=F12).contains(&shortcut.vk) || shortcut.vk == BACKSPACE)
 }
 
 pub fn action_id(action: Action) -> usize {
@@ -646,18 +664,30 @@ mod tests {
     }
 
     #[test]
-    fn win_l_and_ctrl_alt_del_are_reserved() {
-        assert!(is_reserved(&parse("Win+L").unwrap()));
-        assert!(is_reserved(&parse("Ctrl+Alt+Delete").unwrap()));
+    fn win_l_and_ctrl_alt_del_are_reserved_on_windows() {
+        assert!(reserved_on_windows(&parse("Win+L").unwrap()));
+        assert!(reserved_on_windows(&parse("Ctrl+Alt+Delete").unwrap()));
     }
 
     #[test]
-    fn other_chords_are_not_reserved() {
-        assert!(!is_reserved(&parse("Win+Shift+L").unwrap()));
-        assert!(!is_reserved(&parse("Ctrl+Win+L").unwrap()));
-        assert!(!is_reserved(&parse("Alt+Win+Left").unwrap()));
-        assert!(!is_reserved(&parse("Ctrl+Alt+Left").unwrap()));
-        assert!(!is_reserved(&parse("Ctrl+Delete").unwrap()));
+    fn other_chords_are_not_reserved_on_windows() {
+        assert!(!reserved_on_windows(&parse("Win+Shift+L").unwrap()));
+        assert!(!reserved_on_windows(&parse("Ctrl+Win+L").unwrap()));
+        assert!(!reserved_on_windows(&parse("Alt+Win+Left").unwrap()));
+        assert!(!reserved_on_windows(&parse("Ctrl+Alt+Left").unwrap()));
+        assert!(!reserved_on_windows(&parse("Ctrl+Delete").unwrap()));
+    }
+
+    #[test]
+    fn console_switching_and_zap_are_reserved_on_x11() {
+        assert!(reserved_on_x11(&parse("Ctrl+Alt+F1").unwrap()));
+        assert!(reserved_on_x11(&parse("Ctrl+Alt+F12").unwrap()));
+        assert!(reserved_on_x11(&parse("Ctrl+Alt+Shift+F3").unwrap()));
+        assert!(reserved_on_x11(&parse("Ctrl+Alt+Backspace").unwrap()));
+        assert!(!reserved_on_x11(&parse("Ctrl+Alt+F13").unwrap()));
+        assert!(!reserved_on_x11(&parse("Ctrl+F1").unwrap()));
+        assert!(!reserved_on_x11(&parse("Ctrl+Alt+Delete").unwrap()));
+        assert!(!reserved_on_x11(&parse("Win+L").unwrap()));
     }
 
     const F9: u16 = 0x78;
