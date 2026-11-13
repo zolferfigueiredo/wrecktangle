@@ -119,6 +119,17 @@ It has no `AppMutex`: its `[Code]` quits a running copy itself (`WM_CLOSE` to
 `WINDOW_CLASS_NAME` from `src/app.rs`, then waits on the mutex from
 `src/main.rs`), so those names must match too.
 
+The `linux` job builds the Linux files on `ubuntu-22.04` (x86_64) and
+`ubuntu-22.04-arm` (aarch64), from the tree `packaging/linux/stage.sh` lays
+out: `.deb` and `.rpm` with nfpm (`packaging/linux/nfpm.yaml`), the
+AppImage with appimagetool, and the `.tar.gz` with `install.sh` and
+`uninstall.sh`. nfpm, appimagetool and the AppImage runtime are pinned
+releases checked against their SHA-256 in the workflow. The publish job
+makes `SHA256SUMS` over every file. On Linux the update check opens the
+release's page (`update::release_page`), never the Windows installer the
+release links to, and an AppImage's launch at startup names the AppImage
+file (`APPIMAGE`), not its temporary mount.
+
 A version with a pre-release part (`0.9.0-beta.1`) is a beta. The Release
 workflow publishes it as a GitHub pre-release, which `/releases/latest` never
 returns, so only a beta copy hears about it: `update::endpoint` asks a beta

@@ -130,9 +130,102 @@ jobs:
             dist/latest.json
             dist/SHA256SUMS
 
+  linux:
+    name: Linux packages
+    needs: check
+    if: needs.check.outputs.skip != 'true'
+    strategy:
+      matrix:
+        # Ubuntu 22.04 keeps the glibc the packages need at 2.35, so they
+        # also run on older distros. nfpm takes Go's architecture names and
+        # turns them into each format's own.
+        include:
+          - runner: ubuntu-22.04
+            arch: x86_64
+            deb: amd64
+            nfpm: x86_64
+            nfpm_sha256: 6d7f9a28b2f397934403950fcbba83f598b08d02edbe79a0815b3b4897341750
+            appimagetool_sha256: ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0
+            runtime_sha256: 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
+          - runner: ubuntu-22.04-arm
+            arch: aarch64
+            deb: arm64
+            nfpm: arm64
+            nfpm_sha256: a9a75213763783b7669719e505474c748c5ad7dc66591a195619deb50f85c2f4
+            appimagetool_sha256: f0837e7448a0c1e4e650a93bb3e85802546e60654ef287576f46c71c126a9158
+            runtime_sha256: 00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    env:
+      V: ${{ needs.check.outputs.version }}
+      NFPM_VERSION: 2.48.0
+      APPIMAGETOOL_VERSION: 1.9.1
+      APPIMAGE_RUNTIME_VERSION: "20251108"
+    steps:
+      - uses: actions/checkout@v7.0.1
+      # The ARM runner image comes without rustup.
+      - name: Install rustup
+        run: |
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain none
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@v2.9.2
+      - run: cargo test
+      - run: cargo build --release
+      - run: packaging/linux/stage.sh target/release/wrecktangle stage
+
+      - name: Fetch the packaging tools
+        # Pinned releases, checked against the SHA-256 GitHub lists for them.
+        run: |
+          mkdir -p tools
+          curl -fsSL -o tools/nfpm.tar.gz "https://github.com/goreleaser/nfpm/releases/download/v$NFPM_VERSION/nfpm_${NFPM_VERSION}_Linux_${{ matrix.nfpm }}.tar.gz"
+          curl -fsSL -o tools/appimagetool "https://github.com/AppImage/appimagetool/releases/download/$APPIMAGETOOL_VERSION/appimagetool-${{ matrix.arch }}.AppImage"
+          curl -fsSL -o tools/runtime "https://github.com/AppImage/type2-runtime/releases/download/$APPIMAGE_RUNTIME_VERSION/runtime-${{ matrix.arch }}"
+          printf '%s  %s\n' \
+            "${{ matrix.nfpm_sha256 }}" tools/nfpm.tar.gz \
+            "${{ matrix.appimagetool_sha256 }}" tools/appimagetool \
+            "${{ matrix.runtime_sha256 }}" tools/runtime | sha256sum -c -
+          tar -xzf tools/nfpm.tar.gz -C tools nfpm
+          chmod +x tools/appimagetool
+
+      - name: Package
+        # Every format is made from the same staged tree.
+        run: |
+          mkdir -p dist
+          for format in deb rpm; do
+            name="Wrecktangle-$V-${{ matrix.deb }}.deb"
+            [ "$format" = rpm ] && name="Wrecktangle-$V-${{ matrix.arch }}.rpm"
+            VERSION="$V" ARCH="${{ matrix.deb }}" tools/nfpm package \
+              -f packaging/linux/nfpm.yaml -p "$format" -t "dist/$name"
+          done
+
+          # The AppImage carries AppRun, the menu entry and the icon at its top.
+          cp -a stage AppDir
+          ln -s usr/bin/wrecktangle AppDir/AppRun
+          cp packaging/linux/wrecktangle.desktop AppDir/
+          cp assets/wrecktangle-256.png AppDir/wrecktangle.png
+          ARCH=${{ matrix.arch }} tools/appimagetool --appimage-extract-and-run \
+            --runtime-file tools/runtime AppDir "dist/Wrecktangle-$V-${{ matrix.arch }}.AppImage"
+
+          # The .tar.gz holds the tree with install.sh and uninstall.sh.
+          dir="Wrecktangle-$V-${{ matrix.arch }}-linux"
+          mkdir "$dir"
+          cp -a stage/usr "$dir/"
+          cp packaging/linux/install.sh packaging/linux/uninstall.sh "$dir/"
+          tar -czf "dist/$dir.tar.gz" "$dir"
+          ls -l dist
+
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: Wrecktangle-${{ env.V }}-linux-${{ matrix.arch }}
+          retention-days: 14
+          path: dist/*
+
   publish:
     name: Publish the release
-    needs: [check, release]
+    needs: [check, release, linux]
     if: needs.check.outputs.publish == 'true'
     # z's Mac, where gh is logged in as zolferfigueiredo, so the release is
     # zolferfigueiredo's, not github-actions[bot]'s.
@@ -141,10 +234,19 @@ jobs:
     env:
       V: ${{ needs.check.outputs.version }}
     steps:
+      # The Windows build and both Linux builds, in one folder.
       - uses: actions/download-artifact@v8
         with:
-          name: Wrecktangle-${{ env.V }}-build
+          pattern: Wrecktangle-${{ env.V }}-*
+          merge-multiple: true
           path: dist
+      - name: Checksums
+        # Over every file, so the Linux packages are vouched for too. The
+        # Windows update reads its installer's line from here.
+        run: |
+          cd dist
+          rm -f SHA256SUMS
+          shasum -a 256 Wrecktangle-* > SHA256SUMS
       # On a push to main this also makes the v tag, on the commit that was
       # built.
       - name: Publish the release
@@ -155,10 +257,7 @@ jobs:
           prerelease=""
           case "$V" in *-*) prerelease="--prerelease" ;; esac
           gh release create "v$V" $prerelease \
-            "dist/Wrecktangle-$V-x64-setup.exe" \
-            "dist/Wrecktangle-$V-x64.zip" \
-            "dist/Wrecktangle-$V-x86-setup.exe" \
-            "dist/Wrecktangle-$V-x86.zip" \
+            dist/Wrecktangle-"$V"-* \
             "dist/latest.json" \
             "dist/SHA256SUMS" \
             -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "Wrecktangle $V" --generate-notes

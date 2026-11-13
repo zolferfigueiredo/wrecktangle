@@ -180,11 +180,25 @@ pub fn set_enabled(enabled: bool) -> std::io::Result<()> {
             _ => Ok(()),
         };
     }
-    let exe = std::env::current_exe()?;
+    let exe = autostart_exe(
+        std::env::var("APPIMAGE").ok().as_deref(),
+        &std::env::current_exe()?,
+    );
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    std::fs::write(&path, desktop_entry(&exe.display().to_string()))
+    std::fs::write(&path, desktop_entry(&exe))
+}
+
+/// What launch at startup runs. An AppImage runs from a mount that is gone
+/// after the next boot, so its entry names the AppImage file, which the
+/// AppImage runtime passes in `APPIMAGE`.
+#[cfg(any(not(windows), test))]
+fn autostart_exe(appimage: Option<&str>, current: &std::path::Path) -> String {
+    match appimage.filter(|path| !path.is_empty()) {
+        Some(path) => path.to_string(),
+        None => current.display().to_string(),
+    }
 }
 
 #[cfg(not(windows))]
@@ -485,5 +499,17 @@ mod tests {
         assert!(!entry_enabled(
             "[Desktop Entry]\nX-GNOME-Autostart-enabled=false\n"
         ));
+    }
+
+    #[test]
+    fn an_appimage_starts_from_its_own_file() {
+        let mounted = std::path::Path::new("/tmp/.mount_WreckXy/usr/bin/wrecktangle");
+        assert_eq!(
+            autostart_exe(Some("/home/z/Apps/Wrecktangle.AppImage"), mounted),
+            "/home/z/Apps/Wrecktangle.AppImage"
+        );
+        let installed = std::path::Path::new("/usr/bin/wrecktangle");
+        assert_eq!(autostart_exe(None, installed), "/usr/bin/wrecktangle");
+        assert_eq!(autostart_exe(Some(""), installed), "/usr/bin/wrecktangle");
     }
 }

@@ -1,0 +1,48 @@
+# The .deb and .rpm, built from the tree packaging/linux/stage.sh lays out
+# in ./stage. The Release workflow runs, for each architecture (amd64 or
+# arm64; nfpm names them for each format):
+#
+#   VERSION=0.9.0 ARCH=amd64 nfpm package -f packaging/linux/nfpm.yaml -p deb -t <file>
+#
+# The semver schema turns 0.9.0-beta.1 into 0.9.0~beta.1, which both
+# formats sort below 0.9.0.
+name: wrecktangle
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: utils
+priority: optional
+maintainer: Zolfer Figueiredo <244608048+zolferfigueiredo@users.noreply.github.com>
+vendor: zolfer.com
+homepage: https://wrecktangle.zolfer.com
+license: MIT
+description: |-
+  Snap windows from the keyboard.
+  A Rectangle-style window manager for X11 desktops: send the focused window
+  to a half, a corner or the center with one shortcut, and press it again to
+  change its size.
+recommends:
+  - curl
+  - xdg-utils
+suggests:
+  - xfconf
+overrides:
+  deb:
+    depends:
+      - libc6 (>= 2.35)
+      - libgcc-s1
+  rpm:
+    depends:
+      - glibc
+      - libgcc
+contents:
+  - src: ./stage/usr/bin/wrecktangle
+    dst: /usr/bin/wrecktangle
+    file_info:
+      mode: 0755
+  - src: ./stage/usr/share/
+    dst: /usr/share/
+    type: tree
+scripts:
+  preremove: ./packaging/linux/preremove.sh

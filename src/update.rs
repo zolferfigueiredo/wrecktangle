@@ -846,11 +846,22 @@ pub fn should_install_now() -> bool {
     false
 }
 
+/// Opens the new release's page, where the user picks the package for
+/// their system. The release's own download link is the Windows installer.
 #[cfg(target_os = "linux")]
 pub fn install() {
-    if let State::Available { url, .. } = state() {
-        open_url(&url);
+    if let State::Available { version, .. } = state() {
+        open_url(&release_page(&version));
     }
+}
+
+/// The GitHub page of the release for `version`.
+#[cfg(any(not(windows), test))]
+pub fn release_page(version: &str) -> String {
+    format!(
+        "https://github.com/zolferfigueiredo/wrecktangle/releases/tag/v{}",
+        version.trim_start_matches('v')
+    )
 }
 
 #[cfg(target_os = "linux")]
@@ -1278,6 +1289,18 @@ mod tests {
             release("v0.8.0", false, false),
             release("v0.9.0-beta.1", true, false),
         )
+    }
+
+    #[test]
+    fn the_release_page_is_named_after_the_tag() {
+        assert_eq!(
+            release_page("0.9.0-beta.1"),
+            "https://github.com/zolferfigueiredo/wrecktangle/releases/tag/v0.9.0-beta.1"
+        );
+        assert_eq!(
+            release_page("v1.0.0"),
+            "https://github.com/zolferfigueiredo/wrecktangle/releases/tag/v1.0.0"
+        );
     }
 
     #[test]

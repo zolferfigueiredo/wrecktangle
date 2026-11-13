@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Wrecktangle
+Comment=Snap windows from the keyboard
+Exec=wrecktangle
+Icon=wrecktangle
+Terminal=false
+Categories=Utility;
+Keywords=window;snap;tile;shortcut;keyboard;
