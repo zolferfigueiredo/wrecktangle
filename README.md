@@ -209,8 +209,11 @@ then every 24 hours. When a newer version exists:
   the release's `SHA256SUMS`, runs it and starts again, while **Install
   updates automatically** is on. Otherwise, and for the portable copy, a
   notification links to the installer.
-- On Linux, a notification links to the release page. Run
-  `scripts/install-linux.sh` again to update.
+- On Linux, clicking the notification downloads the same kind of file you
+  installed from, for your processor: the `.deb`, the `.rpm`, the AppImage,
+  or the `.tar.gz` for a copy in `~/.local`. Install it the same way. A
+  copy that runs from anywhere else, such as a build, opens the release
+  page.
 
 **Betas.** A beta, a version such as 0.9.0-beta.1, asks for every release,
 so it hears about newer betas and releases. Every other copy asks only for
