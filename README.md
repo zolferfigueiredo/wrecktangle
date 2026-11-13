@@ -70,8 +70,10 @@ from the [releases](https://github.com/zolferfigueiredo/wrecktangle/releases):
 | Any, without root | `Wrecktangle-<version>-x86_64-linux.tar.gz` | unpack it, then run `./install.sh` (installs into `~/.local`) |
 
 Then start **Wrecktangle** from the menu, open **Settings…** from its tray
-icon and turn on **Launch at startup**. To update, install the newer file
-the same way; Wrecktangle tells you when there is one.
+icon and turn on **Launch at startup**. If it was on in another copy, such
+as an older install or a build from source, the copy you install takes it
+over when it starts. To update, install the newer file the same way;
+Wrecktangle tells you when there is one.
 
 To uninstall, run `sudo apt remove wrecktangle` or `sudo dnf remove
 wrecktangle`; a running copy quits first and puts back the Xfce shortcuts it

@@ -131,7 +131,10 @@ release's file of the kind this copy came from (`update::linux_install_kind`:
 `~/.local/bin`) for its architecture (`linux_package_name`, named like the
 workflow's files), and opens the release page for any other copy. An
 AppImage's launch at startup names the AppImage file (`APPIMAGE`), not its
-temporary mount.
+temporary mount. A package can't change the user's own autostart entry, so
+an installed copy (any `linux_install_kind`) takes it over when it starts,
+even as a second start (`startup::adopt_autostart`); a development build
+never does.
 
 A version with a pre-release part (`0.9.0-beta.1`) is a beta. The Release
 workflow publishes it as a GitHub pre-release, which `/releases/latest` never
